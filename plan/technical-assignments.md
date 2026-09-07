@@ -3,6 +3,8 @@
 作成日: 2026-09-04  
 正典: `plan/kikaku.md`（技術構成は第6章、体制は第10章）
 
+> **2026-09-07更新:** 担当者と実装方針を確定した。企画との不一致がある場合は [`plan/status.md`](./status.md) を優先する。
+
 ## 目的
 
 4人が機能を縦に担当しつつ、結合時の責務漏れを防ぐための技術分担表である。
@@ -14,8 +16,11 @@
 - フレームワークは **Next.js（App Router）** とし、画面とAPIを同一リポジトリで実装する。
 - DBは **Neon PostgreSQL + Prisma**、公開環境は **Vercel** とする。
 - 3Dは **React Three Fiber + drei**、モデル作成は **Blender → glTF（Draco圧縮）** とする。
-- 3Dで使用する配置データは `placements` テーブルへ正規化し、3Dプレビュー・俯瞰SVG・製造指示書で共用する。
-- 買い手はゲスト注文のみ。会員登録、配送、画像プリント、手書きメッセージは実装しない。
+- 3Dで使用する配置データは `placements` テーブルへ正規化し、`designs`を介して3Dプレビュー・俯瞰SVG・製造指示書で共用する。
+- 買い手はゲスト注文のみ。会員登録、配送、手書きメッセージは実装しない。
+- 画像印刷はVer1.0の対象外とし、2027-01-15にVer1.5候補として再判定する。
+- 1注文は5号ケーキ1台に固定し、外周デコ、在庫数、パーツ提供可否は実装しない。
+- スポンジ色とクリーム色はVer0.5のプリセット検証後、Ver1.0までに自由指定へ移行する。
 
 ## 技術の重さ
 
@@ -34,6 +39,8 @@
 | Vercel | 低〜中 | Neon接続、環境設定、PRプレビュー運用 |
 
 ## ① バックエンド・進行管理
+
+担当: `fruehlingstee`
 
 ### 担当技術
 
@@ -63,6 +70,8 @@ StripeとDBトランザクションが高難度である。決済、予約枠の
 
 ## ② バックエンド兼店舗側フロント
 
+担当: `buna-bunaa`
+
 ### 担当技術
 
 TypeScript / Next.js / PostgreSQL / Neon / Prisma / 印刷CSS / 自前セッション認証
@@ -89,6 +98,8 @@ TypeScript / Next.js / PostgreSQL / Neon / Prisma / 印刷CSS / 自前セッシ�
 画面数は多いが、3D・決済より不確実性は低い。予約枠と製造指示書は業務価値の中心であり、①のDB設計レビューを通じて結合する。
 
 ## ③ 3D・Blender
+
+担当: `koyou`
 
 ### 担当技術
 
@@ -118,9 +129,11 @@ TypeScript / React Three Fiber / drei / Three.js / Blender / glTF / Draco圧縮 
 
 ## ④ 3D兼買い手側フロント
 
+担当: `kobayashishuu0`
+
 ### 担当技術
 
-TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描画 / CSS方針としてTailwind CSS + shadcn/ui（採用決定後）
+TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描画 / Tailwind CSS / shadcn/ui
 
 ### 担当範囲
 
@@ -160,7 +173,7 @@ TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描
 ```text
 placements
   id
-  order_id
+  design_id
   part_id
   pos_x
   pos_y
@@ -173,7 +186,7 @@ placements
 - ③は3D表示と配置操作でこのデータを作る。
 - ④は `pos_x` と `pos_z` を用いて俯瞰SVGを描く。
 - ②は `seq_no` を飾り明細と対応付け、製造指示書に印刷する。
-- ①は注文確定後も参照できるようDB整合性を保証する。
+- ①は`orders.design_id`と`designs.locked_at`により、注文確定後も同一デザインを参照できるようDB整合性を保証する。
 
 ## TypeScriptの共通学習範囲
 
