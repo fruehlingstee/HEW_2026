@@ -4,9 +4,8 @@
 
 ```text
 .
-├─ docs/
-│  └─ issue-reference/          # Issue実装の共通設計資料
 ├─ plan/                        # 企画・決定・進捗
+│  └─ issue-reference/          # Issue実装の共通設計資料
 ├─ prisma/
 │  ├─ schema.prisma
 │  ├─ migrations/

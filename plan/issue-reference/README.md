@@ -4,10 +4,10 @@
 
 ## 正典の優先順位
 
-1. [`plan/status.md`](../../plan/status.md) — 確定仕様・保留事項・担当
+1. [`plan/status.md`](../status.md) — 確定仕様・保留事項・担当
 2. このディレクトリ — 実装契約・構造・図
 3. 各GitHub Issue — 作業範囲・開始条件・完了条件
-4. [`plan/kikaku.md`](../../plan/kikaku.md) — 企画背景・発表上の説明
+4. [`plan/kikaku.md`](../kikaku.md) — 企画背景・発表上の説明
 
 矛盾を見つけた場合、独断でコードへ合わせず、4人で合意して`plan/status.md`と関連資料を同じPRで更新する。
 
