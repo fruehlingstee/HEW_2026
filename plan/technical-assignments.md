@@ -1,21 +1,22 @@
 # 技術スタック・担当分担: CakeCanvas
 
-作成日: 2026-09-04  
-正典: `plan/kikaku.md`（技術構成は第6章、体制は第10章）
+作成日: 2026-09-04 / 最終更新: 2026-09-10  
+企画・機能: `plan/kikaku.md` / 最新の決定・進捗: `plan/status.md`
 
 ## 目的
 
 4人が機能を縦に担当しつつ、結合時の責務漏れを防ぐための技術分担表である。
-企画・機能の正典は `plan/kikaku.md` とし、本書は実装担当と技術的な境界だけを扱う。
+本書は実装担当と技術的な境界を扱う。2026-09-07の決定を反映済み。差異がある場合は `plan/status.md` の最新決定を優先し、関連本文も更新する。新しい仕様変更は4人全員の合意後に確定する。
 
 ## 全体方針
 
 - 共通言語は **TypeScript** とする。フロントエンド、API、DBアクセスでデータ型を揃える。
 - フレームワークは **Next.js（App Router）** とし、画面とAPIを同一リポジトリで実装する。
 - DBは **Neon PostgreSQL + Prisma**、公開環境は **Vercel** とする。
-- 3Dは **React Three Fiber + drei**、モデル作成は **Blender → glTF（Draco圧縮）** とする。
+- 3Dは **React Three Fiber + drei**、モデル作成は **Blender → 通常のGLB（合計2MBを超えた場合のみDraco圧縮を検討）** とする。
 - 3Dで使用する配置データは `placements` テーブルへ正規化し、3Dプレビュー・俯瞰SVG・製造指示書で共用する。
-- 買い手はゲスト注文のみ。会員登録、配送、画像プリント、手書きメッセージは実装しない。
+- 買い手はゲスト注文のみ。1店舗・1注文1台の5号ケーキ・店頭受取とする。外周デコ、在庫数、提供可否管理は実装しない。
+- 会員登録、配送、手書きメッセージは実装しない。画像印刷は現行スコープ外で、2027-01-15に条件付きで採否を再判定する。
 
 ## 技術の重さ
 
@@ -33,11 +34,11 @@
 | Resend | 低 | 通知の送信契機と内容 |
 | Vercel | 低〜中 | Neon接続、環境設定、PRプレビュー運用 |
 
-## ① バックエンド・進行管理
+## ① バックエンド・進行管理（fruehlingstee）
 
 ### 担当技術
 
-TypeScript / Next.js Route Handlers / PostgreSQL / Neon / Prisma / Stripe / Resend / Vercel / GitHub Projects
+TypeScript / Next.js Server Components・Server Actions・Route Handlers / PostgreSQL / Neon / Prisma / Stripe / Resend / Vercel / GitHub Projects
 
 ### 担当範囲
 
@@ -47,7 +48,7 @@ TypeScript / Next.js Route Handlers / PostgreSQL / Neon / Prisma / Stripe / Rese
 - 買い手向け注文API、注文照会API、キャンセルAPI
 - Stripe Payment Intentの作成、Webhook検証、決済成功後の注文確定
 - 返金率の自動判定、Stripe返金、`refunds` への記録
-- 注文確認・進捗変更・返金完了メールの送信
+- 注文受付、受取可、購入者キャンセル、店舗却下・返金の4種類のメール送信と、送信結果・二重送信防止のDB管理
 - Vercel + Neonの接続、PRプレビュー、CIの土台
 
 ### 必ず満たす実装条件
@@ -56,12 +57,14 @@ TypeScript / Next.js Route Handlers / PostgreSQL / Neon / Prisma / Stripe / Rese
 - 注文確定時に、パーツ名・単価・数量を `order_items` にスナップショットとして保存する。
 - Neonは接続プーラ経由の `DATABASE_URL` をアプリ用、直結の `DIRECT_URL` をマイグレーション用として使う。
 - DB設計と決済確定処理は②がレビューし、①のみが把握する状態を作らない。
+- `designs` を注文前に作成し、`placements.design_id` と `orders.design_id` で参照する。注文確定時に `designs.locked_at` を設定する。
+- 決済開始時に予約枠を15分間仮確保し、空き枠確認時にも期限切れを解放する。Stripe更新の冪等性と、全状態遷移の `order_status_logs` 記録を保証する。
 
 ### 重さとリスク
 
 StripeとDBトランザクションが高難度である。決済、予約枠の消費、注文確定、メール送信の順序を誤ると二重注文・過剰予約・通知漏れが起きる。
 
-## ② バックエンド兼店舗側フロント
+## ② バックエンド兼店舗側フロント（buna-bunaa）
 
 ### 担当技術
 
@@ -69,7 +72,7 @@ TypeScript / Next.js / PostgreSQL / Neon / Prisma / 印刷CSS / 自前セッシ�
 
 ### 担当範囲
 
-- パーツCMS（価格、アレルゲン、提供可否）の店舗画面
+- パーツCMS（価格、アレルゲン）の店舗画面。登録済みパーツは常に利用可能
 - 注文一覧、注文詳細、受付→製造中→受取可→完了の状態更新画面
 - 製造ポイント制の予約枠、日別キャパ、臨時休業の管理画面
 - 店舗スタッフ用ログイン、署名付きHttpOnly Cookie、管理画面のアクセス制御
@@ -79,8 +82,8 @@ TypeScript / Next.js / PostgreSQL / Neon / Prisma / 印刷CSS / 自前セッシ�
 
 ### 必ず満たす実装条件
 
-- 予約枠はサイズ別の製造ポイントで管理する。
-- 決済確定時のキャパ消費は①の注文確定処理と連携し、枠不足なら注文を確定させない。
+- 予約枠は日単位、5号1台を1ポイント、初期日次上限を5ポイントとする。時間帯別管理・飾り数の加算は行わない。
+- 仮確保・期限切れ解放・確定時のキャパ処理は①と連携する。決済開始前に枠不足を検出し、二重消費・過剰予約を防ぐ。
 - 指示書は厨房作業用とし、3Dの見栄えより白背景で読めることを優先する。
 - 店舗スタッフ認証は買い手のゲスト注文とは別の自前簡易セッション認証とする。
 
@@ -88,7 +91,7 @@ TypeScript / Next.js / PostgreSQL / Neon / Prisma / 印刷CSS / 自前セッシ�
 
 画面数は多いが、3D・決済より不確実性は低い。予約枠と製造指示書は業務価値の中心であり、①のDB設計レビューを通じて結合する。
 
-## ③ 3D・Blender
+## ③ 3D・デザイン（koyou）
 
 ### 担当技術
 
@@ -96,8 +99,8 @@ TypeScript / React Three Fiber / drei / Three.js / Blender / glTF / Draco圧縮 
 
 ### 担当範囲
 
-- ケーキ土台、フルーツ、チョコ、飾りのローポリ3Dモデル作成
-- BlenderからglTFへの書き出し、Draco圧縮、Webでの表示検証
+- 5号土台と苺でPoCを作り、成功後にラズベリー、ブルーベリー、チョコプレートを追加する。
+- UIデザイン、Blenderから通常のGLBへの書き出し、Webでの表示検証。Dracoは合計2MB超過時のみ検討する。
 - R3Fの3Dシーン、カメラ、ライト、回転・俯瞰表示
 - レイキャストによるケーキ表面へのドラッグ配置
 - 配置ごとの `pos_x`、`pos_y`、`pos_z`、`rot_y`、`scale` の作成・更新
@@ -110,23 +113,24 @@ TypeScript / React Three Fiber / drei / Three.js / Blender / glTF / Draco圧縮 
 - 飾りをドラッグして配置し、座標をDBへ保存する。
 - 保存座標から同じ配置を再表示する。
 - モデルは精密さより軽量さとパーツの見分けやすさを優先する。
+- 目標は初期表示3秒以内、操作中30fps以上、土台500KB以下、飾り1種類150KB以下とする。
 
 ### 重さとリスク
 
 本プロジェクトで最も難しい領域。レイキャスト、モデル座標、ドラッグ中の表示、モバイル性能を同時に扱う必要がある。
-10月末に上記3条件をすべて満たせなければ、2.5D（俯瞰配置図+側面プレビュー）へ縮退する。
+2026-10-30にPCとiPhoneで上記3条件を検証する。未達ならSVG上の真上視点ドラッグ配置と簡易側面図による2.5Dへ縮退する。
 
-## ④ 3D兼買い手側フロント
+## ④ 3D兼買い手側フロント（kobayashishuu0）
 
 ### 担当技術
 
-TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描画 / CSS方針としてTailwind CSS + shadcn/ui（採用決定後）
+TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描画 / Tailwind CSS / shadcn/ui / Zod / react-hook-form
 
 ### 担当範囲
 
-- サイズ、スポンジ、クリーム、外周デコを選ぶステップUI
+- 5号固定でスポンジ・クリームの色を指定するステップUI。Ver0.5はプリセット3色、Ver1.0はカラーピッカー
 - 飾り付けエディタと買い手画面の接続
-- リアルタイム価格、個数上限、アレルゲンバッジ、追加前アレルゲン表示
+- リアルタイム価格、初期12個の飾り上限、注文確認画面の関連アレルゲン・店舗注記・確認チェック。除外フィルタと追加前警告は実装しない。
 - 注文確認前の構成確認画面
 - 配置データの `(x, z)` を真上から投影する番号付き俯瞰SVG
 - SVGと飾り明細の `seq_no` を対応させる処理
@@ -135,7 +139,7 @@ TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描
 
 ### 必ず満たす実装条件
 
-- 買い手は、ベース選択→飾り付け→メッセージ→見積確認までを短時間で完了できる。
+- 買い手は、5号ケーキの色指定→飾り付け→メッセージ→見積確認までを短時間で完了できる。
 - 俯瞰SVGは3Dのスクリーンショットではなく、配置座標からベクタとして描画する。
 - SVGの番号と、製造指示書の飾り明細の番号を一致させる。
 - ③と同じ `placements` データを読み、別形式の座標を持たない。
@@ -160,7 +164,7 @@ TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描
 ```text
 placements
   id
-  order_id
+  design_id
   part_id
   pos_x
   pos_y
@@ -174,6 +178,7 @@ placements
 - ④は `pos_x` と `pos_z` を用いて俯瞰SVGを描く。
 - ②は `seq_no` を飾り明細と対応付け、製造指示書に印刷する。
 - ①は注文確定後も参照できるようDB整合性を保証する。
+- `orders.design_id` から同じデザインを参照し、確定時に `designs.locked_at` を設定する。未注文は7日、注文済みは受取日の30日後まで保持する。
 
 ## TypeScriptの共通学習範囲
 
@@ -189,9 +194,8 @@ placements
 
 ## 直近の着手順
 
-1. ①・②: DBの主要テーブルと注文状態を共同でレビューする。
-2. ③・④: `placements` の座標形式と、3Dから俯瞰SVGへの変換ルールを決める。
-3. ①: Vercel + Neon + Prismaの接続プーラを含む環境を構築する。
-4. ③: モバイルSafariでglTFを表示する最小PoCを作る。
-5. ④: ベース選択ステップUIと、ダミー配置データから描く俯瞰SVGを作る。
-6. ②: ダミー注文データからA4縦1枚の製造指示書を印刷できるようにする。
+1. ①: README、ディレクトリ構成、PRテンプレート、CIの土台を整備する。
+2. 全員: 1〜2週目にGit・JavaScript・TypeScript・React、3週目にNext.jsと担当別技術を学ぶ。
+3. ①・②: `designs`、`placements`、`orders`、予約枠を中心にDBと注文状態をレビューする。③・④と座標形式・俯瞰SVGへの変換ルールを合わせる。
+4. ①: Vercel + Neon + Prismaの接続プーラを含む環境を構築する。Local・Preview・Productionを分ける。
+5. 4週目以降: ①はStripeテスト決済・Webhook、③は5号土台と苺の3D、④は色指定・仮価格・俯瞰SVG、②はダミー注文の製造指示書をそれぞれPoCで検証する。

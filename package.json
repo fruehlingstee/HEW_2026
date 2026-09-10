@@ -1,0 +1,41 @@
+{
+  "name": "customizable_cake_service",
+  "version": "1.0.0",
+  "description": "5号ケーキの色と飾りを指定し、3Dプレビューと店舗向け製造指示書を同じ配置データから生成する、HEW 2026向けのセミオーダーケーキサービスです。Ver1.0は1店舗・1注文1台・店頭受取で開発します。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fruehlingstee/HEW_2026.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/fruehlingstee/HEW_2026/issues"
+  },
+  "homepage": "https://github.com/fruehlingstee/HEW_2026#readme",
+  "dependencies": {
+    "next": "^16.3.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.4",
+    "typescript": "5.9.3"
+  }
+}
