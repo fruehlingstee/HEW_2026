@@ -1,7 +1,7 @@
 # 技術スタック・担当分担: CakeCanvas
 
-作成日: 2026-09-04 / 最終更新: 2026-09-10  
-企画・機能: `plan/kikaku.md` / 最新の決定・進捗: `plan/status.md`
+作成日: 2026-09-04  
+正典: `plan/kikaku.md`（技術構成は第6章、体制は第10章）
 
 ## 目的
 
@@ -13,10 +13,9 @@
 - 共通言語は **TypeScript** とする。フロントエンド、API、DBアクセスでデータ型を揃える。
 - フレームワークは **Next.js（App Router）** とし、画面とAPIを同一リポジトリで実装する。
 - DBは **Neon PostgreSQL + Prisma**、公開環境は **Vercel** とする。
-- 3Dは **React Three Fiber + drei**、モデル作成は **Blender → 通常のGLB（合計2MBを超えた場合のみDraco圧縮を検討）** とする。
+- 3Dは **React Three Fiber + drei**、モデル作成は **Blender → glTF（Draco圧縮）** とする。
 - 3Dで使用する配置データは `placements` テーブルへ正規化し、3Dプレビュー・俯瞰SVG・製造指示書で共用する。
-- 買い手はゲスト注文のみ。1店舗・1注文1台の5号ケーキ・店頭受取とする。外周デコ、在庫数、提供可否管理は実装しない。
-- 会員登録、配送、手書きメッセージは実装しない。画像印刷は現行スコープ外で、2027-01-15に条件付きで採否を再判定する。
+- 買い手はゲスト注文のみ。会員登録、配送、画像プリント、手書きメッセージは実装しない。
 
 ## 技術の重さ
 
@@ -34,7 +33,7 @@
 | Resend | 低 | 通知の送信契機と内容 |
 | Vercel | 低〜中 | Neon接続、環境設定、PRプレビュー運用 |
 
-## ① バックエンド・進行管理（fruehlingstee）
+## ① バックエンド・進行管理
 
 ### 担当技術
 
@@ -64,7 +63,7 @@ TypeScript / Next.js Server Components・Server Actions・Route Handlers / Postg
 
 StripeとDBトランザクションが高難度である。決済、予約枠の消費、注文確定、メール送信の順序を誤ると二重注文・過剰予約・通知漏れが起きる。
 
-## ② バックエンド兼店舗側フロント（buna-bunaa）
+## ② バックエンド兼店舗側フロント
 
 ### 担当技術
 
@@ -91,7 +90,7 @@ TypeScript / Next.js / PostgreSQL / Neon / Prisma / 印刷CSS / 自前セッシ�
 
 画面数は多いが、3D・決済より不確実性は低い。予約枠と製造指示書は業務価値の中心であり、①のDB設計レビューを通じて結合する。
 
-## ③ 3D・デザイン（koyou）
+## ③ 3D・Blender
 
 ### 担当技術
 
@@ -120,11 +119,11 @@ TypeScript / React Three Fiber / drei / Three.js / Blender / glTF / Draco圧縮 
 本プロジェクトで最も難しい領域。レイキャスト、モデル座標、ドラッグ中の表示、モバイル性能を同時に扱う必要がある。
 2026-10-30にPCとiPhoneで上記3条件を検証する。未達ならSVG上の真上視点ドラッグ配置と簡易側面図による2.5Dへ縮退する。
 
-## ④ 3D兼買い手側フロント（kobayashishuu0）
+## ④ 3D兼買い手側フロント
 
 ### 担当技術
 
-TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描画 / Tailwind CSS / shadcn/ui / Zod / react-hook-form
+TypeScript / Next.js / React / React Three Fiber / drei / Zustand / SVG自前描画 / CSS方針としてTailwind CSS + shadcn/ui（採用決定後）
 
 ### 担当範囲
 
@@ -178,7 +177,6 @@ placements
 - ④は `pos_x` と `pos_z` を用いて俯瞰SVGを描く。
 - ②は `seq_no` を飾り明細と対応付け、製造指示書に印刷する。
 - ①は注文確定後も参照できるようDB整合性を保証する。
-- `orders.design_id` から同じデザインを参照し、確定時に `designs.locked_at` を設定する。未注文は7日、注文済みは受取日の30日後まで保持する。
 
 ## TypeScriptの共通学習範囲
 
