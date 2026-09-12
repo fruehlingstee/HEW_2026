@@ -18,15 +18,17 @@ PostgreSQL（Neon）と Prisma を使用する。金額は円単位の `Int`、D
 
 ### parts / allergens / part_allergens
 
-- `parts`: `store_id`, `name`, `asset_key`, `unit_price`, `sort_order`, `is_active`
+- `parts`: `store_id`, `category`, `name`, `asset_key`, `unit_price`, `sort_order`, `is_active`
+- `parts.category`: `decoration`(3D配置する飾り) / `outer_deco`(外周デコ)。Prisma enum とする
 - `allergens`: `code`, `name`
 - `part_allergens`: `part_id`, `allergen_id` の複合主キー
-- Index: `parts(store_id, is_active, sort_order)`
+- Index: `parts(store_id, category, is_active, sort_order)`
 - 在庫数は管理せず、登録済みパーツは利用可能とみなす。
 
 ### designs / placements
 
-- `designs`: `store_id`, `sponge_color`, `cream_color`, `message_text`, `message_plate`, `version`, `locked_at`, `share_token_hash`
+- `designs`: `store_id`, `outer_deco_part_id`, `sponge_color`, `cream_color`, `message_text`, `message_plate`, `version`, `locked_at`, `share_token_hash`
+- `designs.outer_deco_part_id`: nullable な `parts` への参照。NULL は「外周デコなし」。座標を持たないため `placements` には入れない
 - `placements`: `design_id`, `part_id`, `seq_no`, position XYZ、rotation XYZ、`scale`
 - 制約: `placements(design_id, seq_no)` 一意
 - 色は `#RRGGBB`。注文後は `locked_at` を設定して変更不可。
@@ -35,6 +37,7 @@ PostgreSQL（Neon）と Prisma を使用する。金額は円単位の `Int`、D
 
 - `orders`: `store_id`, `design_id`, `pickup_date`, `pickup_sequence`, `status`, 顧客情報、`access_token_hash`, `subtotal`, `tax`, `total`, `allergen_snapshot`, `allergen_confirmed_at`
 - `order_items`: `order_id`, `kind`, `name_snapshot`, `unit_price`, `quantity`, `line_total`
+- `order_items.kind`: `base` / `outer_deco` / `decoration` / `message_plate`
 - `order_status_logs`: `order_id`, `from_status`, `to_status`, `actor_type`, `actor_id`, `reason`, `created_at`
 - 一意: `orders.design_id`, `orders(store_id, pickup_date, pickup_sequence)`, `orders.access_token_hash`
 - Index: `orders(store_id, pickup_date, status)`
