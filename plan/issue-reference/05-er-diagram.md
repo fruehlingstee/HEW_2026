@@ -15,6 +15,7 @@ erDiagram
     allergens ||--o{ part_allergens : classifies
     designs ||--o{ placements : contains
     parts ||--o{ placements : placed_as
+    parts ||--o{ designs : outer_deco_of
     designs ||--o| orders : becomes
 
     orders ||--|{ order_items : snapshots
@@ -40,6 +41,7 @@ erDiagram
     parts {
       string id PK
       string store_id FK
+      enum category
       string name
       string asset_key
       int unit_price
@@ -56,6 +58,7 @@ erDiagram
     designs {
       string id PK
       string store_id FK
+      string outer_deco_part_id FK
       string sponge_color
       string cream_color
       string message_text
@@ -189,5 +192,6 @@ flowchart LR
 - `designs : orders = 1 : 0..1`。注文後のデザインはロックする。
 - `orders : capacity_holds = 1 : 0..1`。決済前は active、成功後は confirmed。
 - `parts : allergens = N : M`。使用パーツに関係する項目だけ注文確認・指示書へ表示する。
+- `designs : parts = N : 1`(外周デコ)。`outer_deco_part_id` は nullable で、NULL は「なし」。外周デコは座標を持たないため `placements` ではなく `designs` が直接参照する。アレルゲン集計では配置パーツと同じく対象に含める。
 - 決済再試行の履歴を残すため `orders : payments = 1 : N`、成功決済は原則 1 件。
 - `webhook_events` は Stripe イベント ID 単位で冪等性を保証する。

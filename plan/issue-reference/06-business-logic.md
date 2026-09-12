@@ -5,7 +5,7 @@
 ## 商品・デザイン
 
 - 1 注文 = 5号ケーキ 1 台。
-- 外周デコレーションは扱わない。
+- 外周デコを1デザインに1つ選択できる。既定は「なし」。選択肢と価格はコア機能完成後に確定する。
 - スポンジ色・クリーム色は自由度を優先する。
   - Ver0.5: 用意した色候補から選択。
   - Ver1.0: HTML color picker で指定し `#RRGGBB` 保存。
@@ -23,11 +23,12 @@
 |---|---:|
 | 5号ケーキ本体 | 3,500円 |
 | メッセージプレート | 300円 |
+| 外周デコ | 未定。既定の「なし」は 0円 |
 | 苺・ラズベリー等 | パーツ完成後に確定 |
 | 消費税 | 8% |
 
 ```text
-subtotal = basePrice + platePrice + Σ(unitPrice × quantity)
+subtotal = basePrice + outerDecoPrice + platePrice + Σ(unitPrice × quantity)
 tax      = floor(subtotal × 0.08)
 total    = subtotal + tax
 ```
