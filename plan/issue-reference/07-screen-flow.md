@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart TD
-    A["/stores/[slug]<br>商品説明"] --> B["/design/[id]/colors<br>スポンジ・クリーム色・外周デコ"]
+    A["/stores/[slug]<br>商品説明"] --> B["/design/[id]/colors<br>スポンジ・クリーム色"]
     B --> C["/design/[id]/decorate<br>3D配置"]
     C --> D["/design/[id]/message<br>プレート"]
     D --> E["/design/[id]/pickup<br>受取日"]
@@ -68,7 +68,7 @@ flowchart LR
 | 画面 | 主な入力 | 主な出力・処理 | 関連 Issue |
 |---|---|---|---|
 | 商品説明 | 店舗 slug | 基本価格、仕様、開始導線 | #35, #37 |
-| 色設定 | preset / RGB、外周デコ | design 保存 | #36, #38, #39 |
+| 色設定 | preset / RGB | design 保存 | #36, #38, #39 |
 | 3D配置 | part、座標、回転、拡縮 | placements 保存、SVG 同期 | #40–#45 |
 | メッセージ | 文言、プレート有無 | 価格・design 更新 | #36, #39 |
 | 受取日 | 日付 | availability、hold | #46, #47 |

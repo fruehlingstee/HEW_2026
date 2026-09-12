@@ -34,7 +34,6 @@ export const orderInputSchema: z.ZodType<OrderInput>;
 
 export function calculateQuote(input: {
   basePrice: Money;
-  outerDecoPrice?: Money;
   messagePlate: boolean;
   items: Array<{ unitPrice: Money; quantity: number }>;
 }): { subtotal: Money; tax: Money; total: Money; lines: QuoteLine[] };
@@ -47,7 +46,7 @@ export function aggregateRelevantAllergens(
 ): AllergenSummary[];
 ```
 
-税率は既定 8%（800 bps）、端数切り捨て。価格は注文時にスナップショット化する。`outerDecoPrice` は外周デコ「なし」のとき省略または 0 とする。
+税率は既定 8%（800 bps）、端数切り捨て。価格は注文時にスナップショット化する。
 
 ## デザイン
 
