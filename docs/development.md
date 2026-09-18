@@ -1,106 +1,79 @@
-# 開発手順と初期構成
+# 開発手順と基盤の残作業
 
-## 今回の到達点
+## 現在の到達点
 
-README、共同開発ルール、PRテンプレート、CIひな形を用意した。アプリ・package.json・lockfileの作成と依存関係のインストールは確認待ち。DB・決済接続と本番公開は後続の作業で行う。
+Next.js・TypeScript・Tailwind CSSの最小画面、ESLint・Vitest・PostCSS設定、package.json・lockfile、CIを作成済み。DB・業務ロジック・3D・購入画面・店舗画面は未実装。
 
-## ランタイム
+[PR #86](https://github.com/fruehlingstee/HEW_2026/pull/86) は2026-09-16確認時点で未マージ。レビュー・統合と、Prisma導入を含む [#28](https://github.com/fruehlingstee/HEW_2026/issues/28) の完了を区別する。設計の確認案と作業依存関係は [開発着手レビュー](../plan/development-readiness.md) を参照する。
 
-Node.js 24.21.0 LTSを使用する。.node-versionと.nvmrcに固定し、CIも.node-versionを参照する。npmはNode同梱版を基準にし、初期化時に実行環境の版を記録する。
+## ランタイムと起動
 
-Windowsは対応するバージョン管理ツール、またはNode.jsの公式配布を利用する。バージョンファイルがあるだけではNode自体はインストールされない。
+.node-versionと.nvmrcのNode.js 24.21.0を使用する。2026-09-16のローカル確認値はNode.js 24.21.0、npm 11.19.0。バージョンファイルだけではNodeはインストールされない。
 
-確認コマンド:
+基盤を含むブランチを取得後、リポジトリのルートで順に実行する。
 
 ```sh
 node --version
 npm --version
+npm ci
+npm run dev
 ```
 
-## 追加するパッケージ案(確認待ち)
+http://localhost:3000 にCakeCanvasの名称とキャッチコピーが表示される。PowerShellでnpmの実行ポリシーエラーが出る場合は `npm.cmd` を使う。最小画面はDB・決済接続なしで起動できる。
 
-| 区分 | パッケージ | 用途 |
-|---|---|---|
-| dependencies | next、react、react-dom | App Routerと画面の最小構成 |
-| devDependencies | typescript、@types/node、@types/react、@types/react-dom | 型チェック |
-| devDependencies | eslint、eslint-config-next | コードチェック |
-| devDependencies | vitest | 単体テスト実行 |
-| devDependencies | tailwindcss、@tailwindcss/postcss、postcss | 採用済みCSS基盤 |
+## 導入済み・後続の依存関係
 
-Next.jsは公式ドキュメントで確認した16.3.4を候補に、React等との互換性とレジストリの公開版を初期化時に確認する。解決した版をpackage.json・package-lock.jsonへ記録する。
+| 区分 | 導入済み |
+|---|---|
+| dependencies | next、react、react-dom |
+| devDependencies | TypeScript、Node/Reactの型、ESLint、eslint-config-next、Vitest、Tailwind CSS、PostCSS関連 |
 
-Prisma、Stripe、Resend、R3F、drei、Zustand、Zod、react-hook-form、date-fns/date-fns-tz、shadcn/uiの各部品は、担当機能の着手時に必要分を追加する。採用方針は維持するが、今回の最小画面では使用しない。
+実際のバージョンはpackage.jsonとpackage-lock.jsonを参照する。既存依存関係の承認状況はPRレビューで確認する。
+
+Prisma・DB接続関連は#28、Zodは#36、R3F/dreiは#41など、担当機能の着手時に必要分を追加する。パッケージ追加前に具体的な名前・バージョン・用途・差分を提示する。採用方針だけを追加承認の証跡にしない。
+
+Vercel接続作業ではCLIの導入を推奨する（`npm i -g vercel`）。プロジェクトの依存関係とは別に導入する。接続情報の設定は担当者が行い、Codexは.env系ファイルを読み書きしない。
 
 ## ディレクトリ方針
 
-アプリ初期化時に次の構成を作る。空の将来用ディレクトリは、最初のファイルが必要になった時点で追加する。
+[共通の構成](../plan/issue-reference/02-file-structure.md) を優先する。現時点の実装は `src/app/page.tsx`、`layout.tsx`、`globals.css` のみ。
 
-```text
-src/
-  app/
-    layout.tsx       共通レイアウト
-    page.tsx         起動確認用の最小ページ
-    globals.css      共通CSS
-    api/             WebhookなどのRoute Handlers(導入時)
-  components/
-    ui/              shadcn/ui等の共通部品(導入時)
-  features/
-    buyer/           買い手画面・状態(④)
-    editor/          3Dと配置操作(③④)
-    store/           店舗画面・指示書(②)
-    orders/          注文・予約・決済処理(①②)
-  lib/               共通処理、サーバー側DB接続(導入時)
-  types/             複数機能で共有する型(①が調整)
-public/
-  models/            GLB(③が追加)
-prisma/
-  schema.prisma      DB設計レビュー後
-  migrations/        Prisma Migrateで作成
-```
+- `src/app`: URL、ページの組み立て、Route Handler。
+- `src/features`: customization、editor-3d、overview-svgなどの画面機能。
+- `src/domain`: React・DB・外部SDKに依存しない型・純粋ロジック。
+- `src/server`: actions、services、repositories、db、integrations。
+- `src/components/ui`: 共通UI。
+- `public/models`: モデルと由来・ライセンス。
+- `prisma`: モデル、migration、seed。
 
-テストは対象の近くに `*.test.ts` を置く。アプリ内は `@/* → src/*` のimport aliasを使う。Server Componentsでデータ取得、Server Actionsでアプリ内の更新を基本とし、Webhook等をRoute Handlersで受ける。秘密情報を使う処理はクライアントへimportしない。
+将来用の空ディレクトリは作らない。import aliasは `@/* → src/*`。テストは対象の近くに `*.test.ts` を置く。現在のVitest設定はNode環境・`src/**/*.test.ts` が対象で、ReactコンポーネントのDOMテスト環境は未導入。
 
-## 初期化後のnpm scripts
+## 開発コマンド
 
-| コマンド | 中身 | 目的 |
-|---|---|---|
-| npm run dev | next dev | 開発サーバー |
-| npm run build | next build | ビルド |
-| npm start | next start | ビルド済みアプリの起動 |
-| npm run typecheck | tsc --noEmit | 型チェック |
-| npm run lint | eslint . | ESLint |
-| npm test | vitest run --passWithNoTests | テスト |
-| npm run test:watch | vitest | テスト監視 |
+| コマンド | 内容 |
+|---|---|
+| npm run dev | next dev |
+| npm run build | next build |
+| npm start | next start |
+| npm run typecheck | next typegen && tsc --noEmit |
+| npm run lint | eslint . |
+| npm test | vitest run --passWithNoTests |
+| npm run test:watch | vitest |
 
-最小の起動用画面だけの段階ではテストは未作成と明記する。空テストで成功扱いにしない。`--passWithNoTests` は初期構築中のみ許容し、最初の業務ロジックのテスト追加時に外す。
+テスト本体は未作成。`--passWithNoTests` による正常終了をテストの実施・成功件数に数えない。最初の業務ロジックのテスト追加時にこのオプションを削除する。
 
-初期化後、メンバーはリポジトリを取得して `npm ci` → `npm run dev` を実行する。現時点ではpackage.jsonがないため、この手順は実行不可。
+## CIと検証
 
-## CIの有効化と検証
+[ci.yml](../.github/workflows/ci.yml) はmain向けPR、mainへのpush、手動実行で起動し、Node固定版 → npm ci → 型チェック → ESLint → Vitest → ビルドを実行する。
 
-`.github/workflows/ci.yml.example` は実行可能な構成のひな形で、まだGitHub Actionsには読み込まれない。初期化後に以下を行う。
+PR #86のコミット `95a3d2befaf89cd28f121ef33386452980c1e229` は [CI成功](https://github.com/fruehlingstee/HEW_2026/actions/runs/34552046180)。PR本文にはローカルの型チェック・lint・ビルド・画面確認の報告がある。後続変更は対象コミットごとに検証する。
 
-1. package.json、package-lock.json、TypeScript/ESLint/Vitest/PostCSS設定、最小画面を作る。
-2. npm ci、型チェック、lint、Vitest、ビルドをローカルで実行する。
-3. 起動して最小画面を確認する。
-4. ひな形を `.github/workflows/ci.yml` に変更し、PRでCI実行結果を確認する。
-5. GitHubのルール設定でレビュー1人以上、squash merge、CI通過を必要条件にする。
+## #28の残作業
 
-ひな形の実行内容は checkout → Node固定版 → npm ci → 型チェック → ESLint → Vitest → ビルド。テスト・ビルド用に本番DBや本番秘密情報を渡さない。DB接続導入後はCI用のテスト環境とマイグレーション方針を別途整備する。
+- [ ] 基盤PRのレビューと統合、依存関係の承認状況の確認。
+- [ ] Prismaのバージョン、generator、接続方式、必要なアダプターを確認し、追加差分を提示する。
+- [ ] 承認後にPrismaの最小構成を導入する。業務モデルは#29以降で扱う。
+- [ ] #29が必要とするPrisma導入の開始条件を満たす。
+- [ ] 別メンバーがREADMEからインストール・起動を再現する。
 
-## 完了条件
-
-- 別のメンバーがREADMEだけを見てインストール・起動できる。
-- 初期ページが表示される。
-- 型チェック・lint・ビルドが通り、Vitestの実行状態が明確になっている。
-- PRにレビュー依頼と検証結果があり、GitHub Actionsが実際に通る。
-
-ドキュメントの準備だけでは「アプリ初期構築完了」としない。
-
-## 参照した公式資料
-
-- [Node.jsのリリースとLTS](https://nodejs.org/en/about/previous-releases)
-- [Next.jsのインストール](https://nextjs.org/docs/app/getting-started/installation)
-- [Vitestの導入](https://vitest.dev/guide/)
-
-確認日: 2026-09-10。
+Prisma導入後のmigration・seed・DB制約テストは#34の成果物。基盤のCI成功だけで#27の設計合意や#34のDB検証を完了にしない。

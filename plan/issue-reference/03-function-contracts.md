@@ -2,6 +2,10 @@
 
 Issue 実装時に共有する TypeScript の境界。配置は [02-file-structure.md](./02-file-structure.md)、ルールは [06-business-logic.md](./06-business-logic.md) を参照する。
 
+## 実装前の確認
+
+以下の契約は設計案を含む。外周デコの種別・色を価格入力へ反映する方法、pending作成とデザインロックの時点、共有取得と更新権限の区別を[開発着手レビュー](../development-readiness.md)で確認する。未解決の契約を確定仕様として実装しない。
+
 ## 共通型
 
 ```ts

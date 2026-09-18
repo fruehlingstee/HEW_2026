@@ -2,6 +2,10 @@
 
 PostgreSQL（Neon）と Prisma を使用する。金額は円単位の `Int`、DB 日時は `timestamptz` / UTC、受取営業日は JST 基準の `date` とする。
 
+## 実装前の確認
+
+parts.is_active、配置のXYZ回転、デザインロック時点、外周デコの保存形式、共有・編集権限は[開発着手レビュー](../development-readiness.md)の確認対象。以下の列一覧をそのまま確定Prismaモデルへ変換せず、#27で合意後にER図・関数契約と同時に更新する。
+
 ## 共通方針
 
 - 店舗データは必ず `store_id` を持ち、検索条件にも含める。
