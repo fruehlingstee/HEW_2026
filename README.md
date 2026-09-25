@@ -4,34 +4,36 @@
 
 ## 現在の状態
 
-仕様書を最新決定に統一し、開発手順・PRテンプレート・CIひな形を整備しています。**アプリとpackage.jsonはまだありません。依存パッケージ追加の確認後に初期化します。現時点ではnpm ci / npm run devを実行できません。**
+Next.js・TypeScript・Tailwind CSSの最小画面と開発コマンドを作成済みです。DB・3D・購入・店舗画面は未実装です。
+
+基盤の [PR #86](https://github.com/fruehlingstee/HEW_2026/pull/86) は2026-09-16確認時点で未マージです。利用するブランチにpackage.json、package-lock.json、.github/workflows/ci.ymlが揃っていることを確認してください。
+
+直近の作業・設計確認案・開始条件は [開発着手レビュー](plan/development-readiness.md) にまとめています。設計案はチーム合意前であり、確定仕様と区別します。
 
 ## 最初に読む資料
 
 - [最新の決定・進捗](plan/status.md)
 - [企画・機能仕様](plan/kikaku.md)
 - [担当・技術の境界](plan/technical-assignments.md)
-- [開発手順・構成・初期化案](docs/development.md)
+- [開発手順と基盤の残作業](docs/development.md)
 - [共同開発のルール](CONTRIBUTING.md)
 
-最新決定はstatus.mdを優先し、仕様変更は4人全員の合意後に本文へ反映します。リポジトリ名の方針はHEW_2026、サービス名はCakeCanvasです。
+最新決定はstatus.mdを優先し、仕様変更は4人全員の合意後に本文へ反映します。リポジトリ名はHEW_2026、サービス名はCakeCanvasです。
 
-## 開発環境
+## 開発環境と起動
 
-Node.js **24.21.0 LTS**とnpmを使用します。`.node-version` / `.nvmrc` に同じバージョンを記録しています。npmはNode同梱版を基準にし、初期化時に実際の版を記録します。
+Node.js **24.21.0**を.node-versionと.nvmrcに固定しています。2026-09-16のローカル確認値はNode.js 24.21.0、npm 11.19.0です。
 
-Node.jsのLTS状態とバージョンは[公式リリース情報](https://nodejs.org/en/about/previous-releases)で2026-09-10に確認しました。
-
-アプリ初期化後の手順は次のとおりです。package.jsonとpackage-lock.jsonが揃ってから実行してください。
+基盤を含むブランチを取得し、リポジトリのルートで実行します。
 
 ```sh
 npm ci
 npm run dev
 ```
 
-起動後は http://localhost:3000 を開きます。最初の画面は外部サービスに依存しない構成にする予定です。DB・決済接続の導入手順はその担当作業で追記します。
+http://localhost:3000 を開くとCakeCanvasの名称とキャッチコピーが表示されます。この最小画面はDB・決済接続を必要としません。Windows PowerShellでnpmの実行ポリシーエラーが出る場合は `npm.cmd ci`、`npm.cmd run dev` を使用してください。
 
-## チェック(アプリ初期化後)
+## チェック
 
 ```sh
 npm run typecheck
@@ -40,20 +42,25 @@ npm test
 npm run build
 ```
 
-CIの原案は [.github/workflows/ci.yml.example](.github/workflows/ci.yml.example) です。アプリ初期化・ローカル検証後に `ci.yml` として有効化します。現在はGitHub Actionsで実行されません。
+CIは [.github/workflows/ci.yml](.github/workflows/ci.yml) で定義し、main向けPR・mainへのpush・手動実行に対応しています。[PR #86のCI](https://github.com/fruehlingstee/HEW_2026/actions/runs/34552046180) は成功済みです。これは当該コミットの結果であり、後続変更の成功を保証するものではありません。
+
+テスト本体は未作成です。`npm test` は `--passWithNoTests` によりテスト0件でも正常終了します。最初の業務ロジックのテスト追加時にこのオプションを外します。
 
 ## ファイル構成
 
 ```text
-plan/                         企画、最新決定、担当分担
-docs/development.md           開発手順と初期化案
-memo/                        既存の参考画像
+plan/                         企画、最新決定、担当分担、設計案
+docs/development.md           開発手順と基盤の残作業
+src/app/                      最小画面、共通レイアウト、CSS
+package.json                  開発コマンドと依存関係
+package-lock.json             npm ci用の固定依存関係
+memo/                         既存の参考画像
 .github/pull_request_template.md
-.github/workflows/ci.yml.example
+.github/workflows/ci.yml
 CONTRIBUTING.md
 ```
 
-アプリ初期化後に作るsrc配下の構成は [開発手順](docs/development.md#ディレクトリ方針) を参照してください。
+後続機能の配置は [ファイル構造と依存方向](plan/issue-reference/02-file-structure.md) を参照してください。将来用ディレクトリは必要なファイルを作る時点で追加します。
 
 ## 担当
 
@@ -66,6 +73,6 @@ CONTRIBUTING.md
 
 ## 作業上の約束
 
-- `.env` 系ファイルにCodexは触れません。秘密情報をリポジトリ・PR・Discordへ貼り付けません。
+- .env系ファイルにCodexは触れません。秘密情報をリポジトリ・PR・Discordへ貼り付けません。
 - package.jsonのdependenciesは無断で変更しません。
 - 本番デプロイ前に確認を取ります。Local・Preview・Productionを分け、PreviewとProductionのDBを共有しません。
