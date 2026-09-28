@@ -23,10 +23,11 @@
 | [`06-business-logic.md`](./06-business-logic.md) | 価格、予約枠、注文、返金、期限の計算規則 |
 | [`07-screen-flow.md`](./07-screen-flow.md) | 買い手・店舗・デモの画面遷移 |
 | [`08-issue-map.md`](./08-issue-map.md) | 各Issueが読む資料と成果物 |
+| [`09-capacity-payment-concurrency.md`](./09-capacity-payment-concurrency.md) | 枠競合・期限後決済・Webhook再実行・返金復旧 |
 
 ## 開発着手時の確認
 
-[開発着手レビュー](../development-readiness.md) に、#27・#28の残作業と設計案を記録している。座標、外周デコの保存・価格関数、ロック時点、parts.is_active、共有と編集権限は資料間の不一致があるため、案への合意と資料更新後に実装する。
+[開発着手レビュー](../development-readiness.md) に、#27・#28の残作業と設計案を記録している。外周デコの保存・価格関数、pending作成時の内容固定、予約枠と決済の競合処理は2026-09-28に本チャットで整理した方式へ更新済み。パーツの提供可否も現行仕様に合わせて削除済み。座標、共有と編集権限の不一致は残っており、外周デコの形・上限等とともに順次確認する。チーム全員のレビューとDB実装は未完了。
 
 ## 利用ルール
 
@@ -43,7 +44,7 @@
 |---|---|
 | Design | 注文前から存在するケーキ構成。色、飾り、メッセージを持つ |
 | Placement | Design上に置かれた飾り1個の座標 |
-| Order | 1台の5号ケーキ注文。確定時にDesignをロックする |
+| Order | 1台の5号ケーキ注文。pending作成時にDesignをロックし、通常注文の決済成功はWebhookで確定する |
 | Capacity hold | 決済中の15分間だけ製造枠を仮確保する記録 |
 | Pickup code | 店頭照合用の`MMDD-日別3桁連番` |
 | Access token | 注文照会用の32バイト秘密値。DBにはハッシュのみ保存 |

@@ -53,11 +53,12 @@ TypeScript / Next.js Server Components・Server Actions・Route Handlers / Postg
 ### 必ず満たす実装条件
 
 - 注文確定は画面遷移ではなく、`payment_intent.succeeded` Webhookを根拠に行う。
-- 注文確定時に、パーツ名・単価・数量を `order_items` にスナップショットとして保存する。
+- pending注文作成時に、パーツ名・単価・数量・配置番号・色・版付きモデル参照を `order_items` に、税率・色・メッセージ・アレルゲン等をordersにスナップショットとして保存する。②④はこの固定値とロック済み配置から注文表示・製造指示書を作る。
 - Neonは接続プーラ経由の `DATABASE_URL` をアプリ用、直結の `DIRECT_URL` をマイグレーション用として使う。
 - DB設計と決済確定処理は②がレビューし、①のみが把握する状態を作らない。
-- `designs` を注文前に作成し、`placements.design_id` と `orders.design_id` で参照する。注文確定時に `designs.locked_at` を設定する。
+- `designs` を注文前に作成し、`placements.design_id` と `orders.design_id` で参照する。pending注文作成と同じトランザクションで `designs.locked_at` を設定する。通常注文の決済確定はWebhookで行う。期限切れ後の再注文や内容変更はデザインを複製する。
 - 決済開始時に予約枠を15分間仮確保し、空き枠確認時にも期限切れを解放する。Stripe更新の冪等性と、全状態遷移の `order_status_logs` 記録を保証する。
+- [予約枠・決済の競合処理](issue-reference/09-capacity-payment-concurrency.md)に従い、店舗ロック、期限後成功の全額返金、DB上の未処理イベント・返金・Intent作成/取消の再実行を実装する。②は要対応表示と復旧操作を担当し、①②で実DBの同時実行・障害復旧を検証する。
 
 ### 重さとリスク
 
@@ -171,7 +172,10 @@ placements
   rot_y
   scale
   seq_no
+  color       # 外周デコは色コード必須、通常飾りはNULL
 ```
+
+2026-09-28に本チャットで採用した保存方式: 通常飾りと外周デコは同じplacementsを使用する。種別はparts.kindのみで管理し、配置へ重複保存しない。再利用色はdesign_palette_colorsでデザインごとに管理する。配置色はパレットとは独立した色コードとし、パレット変更で既存配置を変えない。①④は色の正規化と実配置からの課金、③④は配置色の保存・復元、②④は指示書への色表示を合わせる。
 
 - ③は3D表示と配置操作でこのデータを作る。
 - ④は `pos_x` と `pos_z` を用いて俯瞰SVGを描く。
