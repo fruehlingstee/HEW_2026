@@ -23,14 +23,14 @@ export default function CustomizePage() {
   // 苺の個数
   const [strawberryCount, setStrawberryCount] = useState(0);
 
-  // 選択できる色（Ver0.5の仮設定）
+  // 色の選択肢
   const colors = [
     { name: "ホワイト", value: "#FFFFFF" },
     { name: "ピンク", value: "#FFB6C1" },
     { name: "ブラウン", value: "#8B4513" },
   ];
 
-  // 苺の仮座標
+  // 苺の座標
   const [strawberryPositions, setStrawberryPositions] = useState<
     Position[]
   >([
@@ -39,15 +39,14 @@ export default function CustomizePage() {
     { x: 120, y: 155 },
   ]);
 
-  // ドラッグ中の苺の番号
+  // ドラッグ中の苺
   const draggingIndex = useRef<number | null>(null);
 
-  // 苺がケーキからはみ出さないようにする
+  // ケーキ内に座標を制限
   function limitPosition(x: number, y: number): Position {
     const dx = x - 120;
     const dy = y - 120;
     const distance = Math.hypot(dx, dy);
-
     const ratio = distance > 70 ? 70 / distance : 1;
 
     return {
@@ -56,21 +55,18 @@ export default function CustomizePage() {
     };
   }
 
-  // マウス・タッチで苺を動かす
+  // 苺をドラッグ
   function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
     const index = draggingIndex.current;
-
     if (index === null) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
 
-    // マウスの位置をSVG座標に変換
     const x = ((event.clientX - rect.left) / rect.width) * 240;
     const y = ((event.clientY - rect.top) / rect.height) * 240;
 
     const newPosition = limitPosition(x, y);
 
-    // ドラッグしている苺だけ移動する
     setStrawberryPositions((positions) =>
       positions.map((position, i) =>
         i === index ? newPosition : position
@@ -78,7 +74,7 @@ export default function CustomizePage() {
     );
   }
 
-  // 苺①を右へ移動する
+  // 苺①を右へ移動
   function moveStrawberryRight() {
     setStrawberryPositions((positions) =>
       positions.map((position, index) =>
@@ -89,7 +85,7 @@ export default function CustomizePage() {
     );
   }
 
-  // 苺の配置をブラウザに保存する
+  // 苺の配置を保存
   function savePlacement() {
     const data: SavedPlacement = {
       strawberryCount,
@@ -104,7 +100,7 @@ export default function CustomizePage() {
     alert("苺の配置を保存しました！");
   }
 
-  // 保存した苺の配置を読み込む
+  // 苺の配置を読み込み
   function loadPlacement() {
     const saved = localStorage.getItem("cakecanvas-strawberries");
 
@@ -116,7 +112,6 @@ export default function CustomizePage() {
     try {
       const data: SavedPlacement = JSON.parse(saved);
 
-      // 保存データが正しいか確認する
       if (
         !Number.isInteger(data?.strawberryCount) ||
         data.strawberryCount < 0 ||
@@ -133,10 +128,8 @@ export default function CustomizePage() {
         throw new Error("保存データが不正です");
       }
 
-      // 個数を復元する
       setStrawberryCount(data.strawberryCount);
 
-      // 苺の位置を復元する
       setStrawberryPositions(
         data.strawberryPositions.map((p) =>
           limitPosition(p.x, p.y)
@@ -193,7 +186,7 @@ export default function CustomizePage() {
           fill={creamColor}
         />
 
-        {/* 苺の配置と番号 */}
+        {/* 苺と番号 */}
         {strawberryPositions
           .slice(0, strawberryCount)
           .map((position, index) => (
@@ -202,7 +195,6 @@ export default function CustomizePage() {
               className="cursor-grab"
               onPointerDown={(event) => {
                 event.preventDefault();
-
                 draggingIndex.current = index;
 
                 event.currentTarget.ownerSVGElement?.setPointerCapture(
@@ -210,7 +202,6 @@ export default function CustomizePage() {
                 );
               }}
             >
-              {/* 苺を赤い丸で表示 */}
               <circle
                 cx={position.x}
                 cy={position.y}
@@ -220,7 +211,6 @@ export default function CustomizePage() {
                 strokeWidth="2"
               />
 
-              {/* 苺の番号 */}
               <text
                 x={position.x}
                 y={position.y + 5}
@@ -281,7 +271,6 @@ export default function CustomizePage() {
       </p>
 
       <div className="mt-4 flex justify-center gap-4">
-        {/* 削除ボタン */}
         <button
           type="button"
           onClick={() =>
@@ -293,7 +282,6 @@ export default function CustomizePage() {
           削除
         </button>
 
-        {/* 追加ボタン */}
         <button
           type="button"
           onClick={() =>
@@ -306,7 +294,7 @@ export default function CustomizePage() {
         </button>
       </div>
 
-      {/* 苺①を右へ動かすボタン */}
+      {/* 苺①を右へ移動 */}
       <button
         type="button"
         onClick={moveStrawberryRight}
@@ -316,7 +304,7 @@ export default function CustomizePage() {
         苺①を右へ移動
       </button>
 
-      {/* 配置の保存・読み込み */}
+      {/* 保存・読み込み */}
       <div className="mt-6 flex justify-center gap-4">
         <button
           type="button"
@@ -334,6 +322,47 @@ export default function CustomizePage() {
           配置を読み込む
         </button>
       </div>
+
+      {/* 苺の座標一覧：今回追加する機能 */}
+      <section className="mx-auto mt-10 max-w-md">
+        <h3 className="mb-4 text-center text-xl font-bold text-slate-900">
+          苺の座標一覧
+        </h3>
+
+        <table className="w-full border-collapse bg-white text-center text-slate-900">
+          <thead>
+            <tr className="bg-rose-200">
+              <th className="border p-3">苺番号</th>
+              <th className="border p-3">X座標</th>
+              <th className="border p-3">Y座標</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {strawberryPositions
+              .slice(0, strawberryCount)
+              .map((position, index) => (
+                <tr key={index}>
+                  <td className="border p-3">
+                    苺{index + 1}
+                  </td>
+                  <td className="border p-3">
+                    {position.x}
+                  </td>
+                  <td className="border p-3">
+                    {position.y}
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+
+        {strawberryCount === 0 && (
+          <p className="mt-3 text-center text-slate-600">
+            苺を追加すると座標が表示されます
+          </p>
+        )}
+      </section>
     </main>
   );
 }
