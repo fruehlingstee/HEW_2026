@@ -13,6 +13,17 @@ type SavedPlacement = {
   strawberryPositions: Position[];
 };
 
+// CakeCanvasの仮価格（税抜）
+const CAKE_PRICE = 3500;
+const STRAWBERRY_PRICE = 200;
+const MAX_STRAWBERRIES = 3;
+
+const colors = [
+  { name: "ホワイト", value: "#FFFFFF" },
+  { name: "ピンク", value: "#FFB6C1" },
+  { name: "ブラウン", value: "#8B4513" },
+];
+
 export default function CustomizePage() {
   // スポンジの色
   const [spongeColor, setSpongeColor] = useState("#F5D6A0");
@@ -23,14 +34,7 @@ export default function CustomizePage() {
   // 苺の個数
   const [strawberryCount, setStrawberryCount] = useState(0);
 
-  // 色の選択肢
-  const colors = [
-    { name: "ホワイト", value: "#FFFFFF" },
-    { name: "ピンク", value: "#FFB6C1" },
-    { name: "ブラウン", value: "#8B4513" },
-  ];
-
-  // 苺の座標
+  // 苺の仮座標
   const [strawberryPositions, setStrawberryPositions] = useState<
     Position[]
   >([
@@ -41,6 +45,15 @@ export default function CustomizePage() {
 
   // ドラッグ中の苺
   const draggingIndex = useRef<number | null>(null);
+
+  // 価格計算
+  const strawberryTotal = STRAWBERRY_PRICE * strawberryCount;
+  const totalPrice = CAKE_PRICE + strawberryTotal;
+
+  // 金額をカンマ区切りで表示
+  function formatPrice(price: number) {
+    return price.toLocaleString("ja-JP") + "円";
+  }
 
   // ケーキ内に座標を制限
   function limitPosition(x: number, y: number): Position {
@@ -85,39 +98,43 @@ export default function CustomizePage() {
     );
   }
 
-  // 苺の配置を保存
+  // 苺の配置をブラウザに保存
   function savePlacement() {
     const data: SavedPlacement = {
       strawberryCount,
       strawberryPositions,
     };
 
-    localStorage.setItem(
-      "cakecanvas-strawberries",
-      JSON.stringify(data)
-    );
+    try {
+      localStorage.setItem(
+        "cakecanvas-strawberries",
+        JSON.stringify(data)
+      );
 
-    alert("苺の配置を保存しました！");
+      alert("苺の配置を保存しました！");
+    } catch {
+      alert("配置を保存できませんでした");
+    }
   }
 
-  // 苺の配置を読み込み
+  // 保存した苺の配置を読み込み
   function loadPlacement() {
-    const saved = localStorage.getItem("cakecanvas-strawberries");
-
-    if (!saved) {
-      alert("保存データがありません");
-      return;
-    }
-
     try {
+      const saved = localStorage.getItem("cakecanvas-strawberries");
+
+      if (!saved) {
+        alert("保存データがありません");
+        return;
+      }
+
       const data: SavedPlacement = JSON.parse(saved);
 
       if (
         !Number.isInteger(data?.strawberryCount) ||
         data.strawberryCount < 0 ||
-        data.strawberryCount > 3 ||
+        data.strawberryCount > MAX_STRAWBERRIES ||
         !Array.isArray(data.strawberryPositions) ||
-        data.strawberryPositions.length !== 3 ||
+        data.strawberryPositions.length !== MAX_STRAWBERRIES ||
         !data.strawberryPositions.every(
           (p) =>
             p !== null &&
@@ -285,9 +302,11 @@ export default function CustomizePage() {
         <button
           type="button"
           onClick={() =>
-            setStrawberryCount((n) => Math.min(3, n + 1))
+            setStrawberryCount((n) =>
+              Math.min(MAX_STRAWBERRIES, n + 1)
+            )
           }
-          disabled={strawberryCount === 3}
+          disabled={strawberryCount === MAX_STRAWBERRIES}
           className="rounded bg-rose-500 px-6 py-2 text-white disabled:opacity-40"
         >
           苺を追加
@@ -323,7 +342,7 @@ export default function CustomizePage() {
         </button>
       </div>
 
-      {/* 苺の座標一覧：今回追加する機能 */}
+      {/* 苺の座標一覧 */}
       <section className="mx-auto mt-10 max-w-md">
         <h3 className="mb-4 text-center text-xl font-bold text-slate-900">
           苺の座標一覧
@@ -362,6 +381,46 @@ export default function CustomizePage() {
             苺を追加すると座標が表示されます
           </p>
         )}
+      </section>
+
+      {/* 今回追加：価格の自動計算 */}
+      <section className="mx-auto mt-10 max-w-md rounded-xl bg-white p-6 shadow">
+        <h3 className="mb-6 text-xl font-bold text-slate-900">
+          お見積もり
+        </h3>
+
+        <div className="space-y-4 text-slate-900">
+          <div className="flex justify-between">
+            <span>5号ケーキ（1台）</span>
+            <span>{formatPrice(CAKE_PRICE)}</span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>スポンジ・クリーム色指定</span>
+            <span>0円</span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>苺（{strawberryCount}個）</span>
+            <span>{formatPrice(strawberryTotal)}</span>
+          </div>
+
+          <hr className="border-slate-200" />
+
+          <div className="flex items-center justify-between">
+            <span className="font-bold">
+              合計（税抜）
+            </span>
+
+            <span className="text-2xl font-bold text-rose-700">
+              {formatPrice(totalPrice)}
+            </span>
+          </div>
+        </div>
+
+        <p className="mt-5 text-sm text-slate-500">
+          ※開発用の仮価格です。実際の注文・決済は行われません。
+        </p>
       </section>
     </main>
   );
