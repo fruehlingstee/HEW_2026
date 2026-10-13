@@ -2,16 +2,17 @@
 "use client";
 
 import { useRef, useState, type PointerEvent } from "react";
+
 import {
   useCakeStore,
   CAKE_PRICE,
   STRAWBERRY_PRICE,
   MESSAGE_PRICE,
   MAX_STRAWBERRIES,
-  type Position,
+  type CakeDesign,
 } from "@/store/cakeStore";
 
-// 購入フローの4画面
+// 購入フロー
 const steps = [
   "色選択",
   "飾り付け",
@@ -19,71 +20,56 @@ const steps = [
   "見積・確認",
 ];
 
+// スポンジの色
 const spongeColors = [
   { name: "プレーン", value: "#F5D6A0" },
   { name: "ピンク", value: "#FFB6C1" },
   { name: "ブラウン", value: "#8B4513" },
 ];
 
+// クリームの色
 const creamColors = [
   { name: "ホワイト", value: "#FFFFFF" },
   { name: "ピンク", value: "#FFB6C1" },
   { name: "ブラウン", value: "#8B4513" },
 ];
 
-// 保存する苺のデータ
-type SavedPlacement = {
-  strawberryCount: number;
-  strawberryPositions: Position[];
+// 保存先のキー
+const STORAGE_KEY = "cakecanvas-design-v1";
+
+// 保存データの形式
+type SavedDesign = {
+  version: 1;
+  design: CakeDesign;
 };
 
-function isSavedPlacement(
+// オブジェクトかどうかを確認
+function isRecord(
   value: unknown
-): value is SavedPlacement {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const data = value as Record<string, unknown>;
-  const count = data.strawberryCount;
-  const positions = data.strawberryPositions;
-
-  if (
-    typeof count !== "number" ||
-    !Number.isInteger(count) ||
-    count < 0 ||
-    count > MAX_STRAWBERRIES ||
-    !Array.isArray(positions) ||
-    positions.length !== MAX_STRAWBERRIES
-  ) {
-    return false;
-  }
-
-  return positions.every((position: unknown) => {
-    if (
-      typeof position !== "object" ||
-      position === null
-    ) {
-      return false;
-    }
-
-    const p = position as Record<string, unknown>;
-
-    return (
-      typeof p.x === "number" &&
-      typeof p.y === "number" &&
-      Number.isFinite(p.x) &&
-      Number.isFinite(p.y)
-    );
-  });
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
-// メッセージに使用できる文字
+// カラーコードの検証
+function isHexColor(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^#[0-9A-Fa-f]{6}$/.test(value)
+  );
+}
+
+// メッセージで使用可能な文字
 const allowedMessage =
-  /^[A-Za-z0-9０-９Ａ-Ｚａ-ｚぁ-ゖァ-ヶ一-龯々〆〤ー 　。、！？!?・（）()「」『』.,\-]+$/u;
+  /^[A-Za-z0-9０-９Ａ-Ｚａ-ｚぁ-ゖァ-ヶ一-龯々〆〤ー 　。、！？!?・（）()「」『』.,-]+$/u;
 
 // メッセージの入力チェック
-function validateMessage(value: string): string | null {
+function validateMessage(
+  value: string
+): string | null {
   if (value.trim().length === 0) {
     return "メッセージを入力してください";
   }
@@ -103,44 +89,136 @@ function validateMessage(value: string): string | null {
   return null;
 }
 
+// 保存データが正しいか確認
+function isSavedDesign(
+  value: unknown
+): value is SavedDesign {
+  if (!isRecord(value)) return false;
+
+  if (value.version !== 1) return false;
+
+  const design = value.design;
+
+  if (!isRecord(design)) return false;
+
+  if (
+    !isHexColor(design.spongeColor) ||
+    !isHexColor(design.creamColor)
+  ) {
+    return false;
+  }
+
+  if (
+    typeof design.strawberryCount !== "number" ||
+    !Number.isInteger(design.strawberryCount) ||
+    design.strawberryCount < 0 ||
+    design.strawberryCount > MAX_STRAWBERRIES
+  ) {
+    return false;
+  }
+
+  const positions = design.strawberryPositions;
+
+  if (
+    !Array.isArray(positions) ||
+    positions.length !== MAX_STRAWBERRIES
+  ) {
+    return false;
+  }
+
+  const validPositions = positions.every(
+    (position: unknown) => {
+      if (!isRecord(position)) return false;
+
+      return (
+        typeof position.x === "number" &&
+        typeof position.y === "number" &&
+        Number.isFinite(position.x) &&
+        Number.isFinite(position.y)
+      );
+    }
+  );
+
+  if (!validPositions) return false;
+
+  if (
+    typeof design.hasMessagePlate !== "boolean" ||
+    typeof design.message !== "string"
+  ) {
+    return false;
+  }
+
+  if (
+    Array.from(design.message).length > 20 ||
+    (design.message !== "" &&
+      !allowedMessage.test(design.message))
+  ) {
+    return false;
+  }
+
+  if (
+    design.hasMessagePlate &&
+    validateMessage(design.message) !== null
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+// 金額表示
 function formatPrice(price: number) {
   return price.toLocaleString("ja-JP") + "円";
 }
 
-// ケーキの俯瞰SVG
-function CakePreview({ editable }: { editable: boolean }) {
+// ケーキの上面図
+function CakePreview({
+  editable,
+}: {
+  editable: boolean;
+}) {
   const spongeColor = useCakeStore(
     (state) => state.spongeColor
   );
+
   const creamColor = useCakeStore(
     (state) => state.creamColor
   );
+
   const strawberryCount = useCakeStore(
     (state) => state.strawberryCount
   );
+
   const strawberryPositions = useCakeStore(
     (state) => state.strawberryPositions
   );
+
   const moveStrawberry = useCakeStore(
     (state) => state.moveStrawberry
   );
 
   const draggingIndex = useRef<number | null>(null);
 
+  // ドラッグ中の座標更新
   function handlePointerMove(
     event: PointerEvent<SVGSVGElement>
   ) {
     if (!editable) return;
 
     const index = draggingIndex.current;
+
     if (index === null) return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect =
+      event.currentTarget.getBoundingClientRect();
 
     const x =
-      ((event.clientX - rect.left) / rect.width) * 240;
+      ((event.clientX - rect.left) / rect.width) *
+      240;
+
     const y =
-      ((event.clientY - rect.top) / rect.height) * 240;
+      ((event.clientY - rect.top) / rect.height) *
+      240;
 
     moveStrawberry(index, { x, y });
   }
@@ -178,17 +256,20 @@ function CakePreview({ editable }: { editable: boolean }) {
         fill={creamColor}
       />
 
-      {/* 苺 */}
+      {/* 苺の配置 */}
       {strawberryPositions
         .slice(0, strawberryCount)
         .map((position, index) => (
           <g
             key={index}
-            className={editable ? "cursor-grab" : ""}
+            className={
+              editable ? "cursor-grab" : ""
+            }
             onPointerDown={(event) => {
               if (!editable) return;
 
               event.preventDefault();
+
               draggingIndex.current = index;
 
               event.currentTarget.ownerSVGElement?.setPointerCapture(
@@ -223,25 +304,30 @@ function CakePreview({ editable }: { editable: boolean }) {
 }
 
 export default function CustomizePage() {
-  // 現在の画面（0〜3）
+  // 表示中の画面
   const [step, setStep] = useState(0);
 
-  // Zustandのデータ
+  // Zustandから情報を取得
   const spongeColor = useCakeStore(
     (state) => state.spongeColor
   );
+
   const creamColor = useCakeStore(
     (state) => state.creamColor
   );
+
   const strawberryCount = useCakeStore(
     (state) => state.strawberryCount
   );
+
   const strawberryPositions = useCakeStore(
     (state) => state.strawberryPositions
   );
+
   const hasMessagePlate = useCakeStore(
     (state) => state.hasMessagePlate
   );
+
   const message = useCakeStore(
     (state) => state.message
   );
@@ -250,29 +336,36 @@ export default function CustomizePage() {
   const setSpongeColor = useCakeStore(
     (state) => state.setSpongeColor
   );
+
   const setCreamColor = useCakeStore(
     (state) => state.setCreamColor
   );
+
   const addStrawberry = useCakeStore(
     (state) => state.addStrawberry
   );
+
   const removeStrawberry = useCakeStore(
     (state) => state.removeStrawberry
   );
+
   const moveStrawberry = useCakeStore(
     (state) => state.moveStrawberry
   );
-  const restoreStrawberries = useCakeStore(
-    (state) => state.restoreStrawberries
-  );
+
   const setHasMessagePlate = useCakeStore(
     (state) => state.setHasMessagePlate
   );
+
   const setMessage = useCakeStore(
     (state) => state.setMessage
   );
 
-  // 見積もり
+  const restoreDesign = useCakeStore(
+    (state) => state.restoreDesign
+  );
+
+  // 価格計算
   const strawberryTotal =
     strawberryCount * STRAWBERRY_PRICE;
 
@@ -280,22 +373,29 @@ export default function CustomizePage() {
     hasMessagePlate ? MESSAGE_PRICE : 0;
 
   const totalPrice =
-    CAKE_PRICE + strawberryTotal + messageTotal;
+    CAKE_PRICE +
+    strawberryTotal +
+    messageTotal;
 
+  // メッセージ入力エラー
   const messageError = hasMessagePlate
     ? validateMessage(message)
     : null;
 
-  // 次の画面へ
+  // 次の画面
   function nextStep() {
     if (step === 2 && messageError) return;
 
-    setStep((current) => Math.min(3, current + 1));
+    setStep((current) =>
+      Math.min(3, current + 1)
+    );
   }
 
-  // 前の画面へ
+  // 前の画面
   function previousStep() {
-    setStep((current) => Math.max(0, current - 1));
+    setStep((current) =>
+      Math.max(0, current - 1)
+    );
   }
 
   // 苺①を右へ移動
@@ -303,6 +403,7 @@ export default function CustomizePage() {
     if (strawberryCount === 0) return;
 
     const position = strawberryPositions[0];
+
     if (!position) return;
 
     moveStrawberry(0, {
@@ -311,51 +412,68 @@ export default function CustomizePage() {
     });
   }
 
-  // 苺の配置を保存
-  function savePlacement() {
-    const data: SavedPlacement = {
+  // デザイン全体を保存
+  function saveDesign() {
+    if (hasMessagePlate && messageError) {
+      alert(messageError);
+      return;
+    }
+
+    const design: CakeDesign = {
+      spongeColor,
+      creamColor,
       strawberryCount,
-      strawberryPositions,
+
+      strawberryPositions:
+        strawberryPositions.map(
+          (position) => ({ ...position })
+        ),
+
+      hasMessagePlate,
+      message: hasMessagePlate ? message : "",
+    };
+
+    const savedData: SavedDesign = {
+      version: 1,
+      design,
     };
 
     try {
       localStorage.setItem(
-        "cakecanvas-strawberries",
-        JSON.stringify(data)
+        STORAGE_KEY,
+        JSON.stringify(savedData)
       );
 
-      alert("苺の配置を保存しました！");
+      alert("デザイン全体を保存しました！");
     } catch {
-      alert("保存できませんでした");
+      alert("デザインを保存できませんでした");
     }
   }
 
-  // 苺の配置を読み込み
-  function loadPlacement() {
+  // 保存したデザインを読み込む
+  function loadDesign() {
     try {
       const saved = localStorage.getItem(
-        "cakecanvas-strawberries"
+        STORAGE_KEY
       );
 
       if (!saved) {
-        alert("保存データがありません");
+        alert("保存したデザインがありません");
         return;
       }
 
-      const data: unknown = JSON.parse(saved);
+      const parsed: unknown = JSON.parse(saved);
 
-      if (!isSavedPlacement(data)) {
+      if (!isSavedDesign(parsed)) {
         throw new Error("保存データが不正です");
       }
 
-      restoreStrawberries(
-        data.strawberryCount,
-        data.strawberryPositions
-      );
+      // Zustandのデータを一括更新
+      restoreDesign(parsed.design);
 
-      alert("配置を読み込みました！");
+      alert("デザイン全体を読み込みました！");
     } catch {
-      alert("読み込みに失敗しました");
+      alert("デザインを読み込めませんでした");
     }
   }
 
@@ -369,6 +487,30 @@ export default function CustomizePage() {
 
         <p className="mt-2 text-slate-600">
           ケーキを、あなたらしく。
+        </p>
+
+        {/* デザイン全体の保存・読み込み */}
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={saveDesign}
+            className="rounded bg-green-700 px-5 py-3 text-white"
+          >
+            デザインを保存
+          </button>
+
+          <button
+            type="button"
+            onClick={loadDesign}
+            className="rounded bg-blue-700 px-5 py-3 text-white"
+          >
+            保存デザインを読み込む
+          </button>
+        </div>
+
+        <p className="mt-2 text-xs text-slate-500">
+          ※現在はブラウザ内への保存です。
+          注文やDBへの登録は行いません。
         </p>
 
         {/* 進捗表示 */}
@@ -493,6 +635,7 @@ export default function CustomizePage() {
               </button>
             </div>
 
+            {/* 座標移動 */}
             <button
               type="button"
               onClick={moveStrawberryRight}
@@ -501,24 +644,6 @@ export default function CustomizePage() {
             >
               苺①を右へ移動
             </button>
-
-            <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
-                onClick={savePlacement}
-                className="rounded bg-green-700 px-4 py-2 text-white"
-              >
-                配置を保存
-              </button>
-
-              <button
-                type="button"
-                onClick={loadPlacement}
-                className="rounded bg-blue-700 px-4 py-2 text-white"
-              >
-                配置を読み込む
-              </button>
-            </div>
 
             {/* 座標一覧 */}
             <h3 className="mt-8 text-center font-bold">
@@ -542,9 +667,11 @@ export default function CustomizePage() {
                       <td className="border p-2">
                         苺{index + 1}
                       </td>
+
                       <td className="border p-2">
                         {position.x}
                       </td>
+
                       <td className="border p-2">
                         {position.y}
                       </td>
@@ -553,8 +680,15 @@ export default function CustomizePage() {
               </tbody>
             </table>
 
+            {strawberryCount === 0 && (
+              <p className="mt-3 text-center text-slate-500">
+                苺を追加すると座標が表示されます。
+              </p>
+            )}
+
             <p className="mt-5 text-center">
-              苺の小計：{formatPrice(strawberryTotal)}
+              苺の小計：
+              {formatPrice(strawberryTotal)}
             </p>
           </section>
         )}
@@ -567,7 +701,8 @@ export default function CustomizePage() {
             </h2>
 
             <p className="mt-2 text-slate-600">
-              プレートを追加する場合は、文字を入力してください。
+              プレートを追加する場合は
+              メッセージを入力してください。
             </p>
 
             <label className="mt-6 flex items-center gap-3">
@@ -575,11 +710,14 @@ export default function CustomizePage() {
                 type="checkbox"
                 checked={hasMessagePlate}
                 onChange={(event) =>
-                  setHasMessagePlate(event.target.checked)
+                  setHasMessagePlate(
+                    event.target.checked
+                  )
                 }
                 className="h-5 w-5"
               />
-              メッセージプレートを追加する（300円・仮）
+              メッセージプレートを追加する
+              （300円・仮）
             </label>
 
             {hasMessagePlate && (
@@ -600,7 +738,9 @@ export default function CustomizePage() {
                     setMessage(event.target.value)
                   }
                   placeholder="Happy Birthday"
-                  aria-invalid={Boolean(messageError)}
+                  aria-invalid={
+                    Boolean(messageError)
+                  }
                   className="mt-3 w-full rounded border border-slate-300 p-3"
                 />
 
@@ -618,7 +758,8 @@ export default function CustomizePage() {
                 )}
 
                 <p className="mt-3 text-sm text-slate-500">
-                  絵文字・機種依存文字・改行は使用できません。
+                  改行・絵文字・機種依存文字は
+                  使用できません。
                 </p>
               </div>
             )}
@@ -656,17 +797,21 @@ export default function CustomizePage() {
               </p>
 
               <p>
-                苺：<strong>{strawberryCount}個</strong>
+                苺：
+                <strong>{strawberryCount}個</strong>
               </p>
 
               <p>
                 メッセージ：
                 <strong>
-                  {hasMessagePlate ? message : "なし"}
+                  {hasMessagePlate
+                    ? message
+                    : "なし"}
                 </strong>
               </p>
             </div>
 
+            {/* 価格 */}
             <h3 className="mt-8 text-xl font-bold">
               お見積もり
             </h3>
@@ -674,7 +819,9 @@ export default function CustomizePage() {
             <div className="mt-4 space-y-3">
               <div className="flex justify-between">
                 <span>5号ケーキ</span>
-                <span>{formatPrice(CAKE_PRICE)}</span>
+                <span>
+                  {formatPrice(CAKE_PRICE)}
+                </span>
               </div>
 
               <div className="flex justify-between">
@@ -683,7 +830,9 @@ export default function CustomizePage() {
               </div>
 
               <div className="flex justify-between">
-                <span>苺（{strawberryCount}個）</span>
+                <span>
+                  苺（{strawberryCount}個）
+                </span>
                 <span>
                   {formatPrice(strawberryTotal)}
                 </span>
@@ -707,7 +856,8 @@ export default function CustomizePage() {
             </div>
 
             <p className="mt-6 text-sm text-slate-500">
-              ※開発用の仮価格です。注文や決済は行われません。
+              ※開発用の仮価格です。
+              実際の注文や決済は行われません。
             </p>
           </section>
         )}
@@ -728,7 +878,8 @@ export default function CustomizePage() {
               type="button"
               onClick={nextStep}
               disabled={
-                step === 2 && Boolean(messageError)
+                step === 2 &&
+                Boolean(messageError)
               }
               className="rounded bg-rose-600 px-6 py-3 text-white disabled:opacity-40"
             >
