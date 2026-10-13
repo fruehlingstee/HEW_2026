@@ -1,104 +1,161 @@
 
 "use client";
 
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, type PointerEvent } from "react";
 
-type Position = {
-  x: number;
-  y: number;
-};
+import {
+  useCakeStore,
+  CAKE_PRICE,
+  STRAWBERRY_PRICE,
+  MAX_STRAWBERRIES,
+  type Position,
+} from "@/store/cakeStore";
 
-type SavedPlacement = {
-  strawberryCount: number;
-  strawberryPositions: Position[];
-};
-
-// CakeCanvasの仮価格（税抜）
-const CAKE_PRICE = 3500;
-const STRAWBERRY_PRICE = 200;
-const MAX_STRAWBERRIES = 3;
-
+// 色の選択肢
 const colors = [
   { name: "ホワイト", value: "#FFFFFF" },
   { name: "ピンク", value: "#FFB6C1" },
   { name: "ブラウン", value: "#8B4513" },
 ];
 
+// 保存データの形式
+type SavedPlacement = {
+  strawberryCount: number;
+  strawberryPositions: Position[];
+};
+
+// 保存データのチェック
+function isSavedPlacement(
+  value: unknown
+): value is SavedPlacement {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const data = value as Record<string, unknown>;
+  const count = data.strawberryCount;
+  const positions = data.strawberryPositions;
+
+  if (
+    typeof count !== "number" ||
+    !Number.isInteger(count) ||
+    count < 0 ||
+    count > MAX_STRAWBERRIES ||
+    !Array.isArray(positions) ||
+    positions.length !== MAX_STRAWBERRIES
+  ) {
+    return false;
+  }
+
+  return positions.every((position: unknown) => {
+    if (
+      typeof position !== "object" ||
+      position === null
+    ) {
+      return false;
+    }
+
+    const p = position as Record<string, unknown>;
+
+    return (
+      typeof p.x === "number" &&
+      typeof p.y === "number" &&
+      Number.isFinite(p.x) &&
+      Number.isFinite(p.y)
+    );
+  });
+}
+
+// 金額の表示
+function formatPrice(price: number) {
+  return price.toLocaleString("ja-JP") + "円";
+}
+
 export default function CustomizePage() {
-  // スポンジの色
-  const [spongeColor, setSpongeColor] = useState("#F5D6A0");
+  // Zustandからデータを取得
+  const spongeColor = useCakeStore(
+    (state) => state.spongeColor
+  );
 
-  // クリームの色
-  const [creamColor, setCreamColor] = useState("#FFFFFF");
+  const creamColor = useCakeStore(
+    (state) => state.creamColor
+  );
 
-  // 苺の個数
-  const [strawberryCount, setStrawberryCount] = useState(0);
+  const strawberryCount = useCakeStore(
+    (state) => state.strawberryCount
+  );
 
-  // 苺の仮座標
-  const [strawberryPositions, setStrawberryPositions] = useState<
-    Position[]
-  >([
-    { x: 85, y: 85 },
-    { x: 155, y: 85 },
-    { x: 120, y: 155 },
-  ]);
+  const strawberryPositions = useCakeStore(
+    (state) => state.strawberryPositions
+  );
 
-  // ドラッグ中の苺
+  // Zustandの操作を取得
+  const setSpongeColor = useCakeStore(
+    (state) => state.setSpongeColor
+  );
+
+  const setCreamColor = useCakeStore(
+    (state) => state.setCreamColor
+  );
+
+  const addStrawberry = useCakeStore(
+    (state) => state.addStrawberry
+  );
+
+  const removeStrawberry = useCakeStore(
+    (state) => state.removeStrawberry
+  );
+
+  const moveStrawberry = useCakeStore(
+    (state) => state.moveStrawberry
+  );
+
+  const restoreStrawberries = useCakeStore(
+    (state) => state.restoreStrawberries
+  );
+
+  // ドラッグしている苺
   const draggingIndex = useRef<number | null>(null);
 
-  // 価格計算
-  const strawberryTotal = STRAWBERRY_PRICE * strawberryCount;
+  // 金額計算
+  const strawberryTotal =
+    strawberryCount * STRAWBERRY_PRICE;
+
   const totalPrice = CAKE_PRICE + strawberryTotal;
 
-  // 金額をカンマ区切りで表示
-  function formatPrice(price: number) {
-    return price.toLocaleString("ja-JP") + "円";
-  }
-
-  // ケーキ内に座標を制限
-  function limitPosition(x: number, y: number): Position {
-    const dx = x - 120;
-    const dy = y - 120;
-    const distance = Math.hypot(dx, dy);
-    const ratio = distance > 70 ? 70 / distance : 1;
-
-    return {
-      x: Math.round(120 + dx * ratio),
-      y: Math.round(120 + dy * ratio),
-    };
-  }
-
-  // 苺をドラッグ
-  function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
+  // 苺をドラッグして移動
+  function handlePointerMove(
+    event: PointerEvent<SVGSVGElement>
+  ) {
     const index = draggingIndex.current;
+
     if (index === null) return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect =
+      event.currentTarget.getBoundingClientRect();
 
-    const x = ((event.clientX - rect.left) / rect.width) * 240;
-    const y = ((event.clientY - rect.top) / rect.height) * 240;
+    const x =
+      ((event.clientX - rect.left) / rect.width) * 240;
 
-    const newPosition = limitPosition(x, y);
+    const y =
+      ((event.clientY - rect.top) / rect.height) * 240;
 
-    setStrawberryPositions((positions) =>
-      positions.map((position, i) =>
-        i === index ? newPosition : position
-      )
-    );
+    moveStrawberry(index, { x, y });
   }
 
   // 苺①を右へ移動
   function moveStrawberryRight() {
-    setStrawberryPositions((positions) =>
-      positions.map((position, index) =>
-        index === 0
-          ? limitPosition(position.x + 10, position.y)
-          : position
-      )
-    );
+    const position = strawberryPositions[0];
+
+    if (!position || strawberryCount === 0) return;
+
+    moveStrawberry(0, {
+      x: position.x + 10,
+      y: position.y,
+    });
   }
 
-  // 苺の配置をブラウザに保存
+  // 苺の配置を保存
   function savePlacement() {
     const data: SavedPlacement = {
       strawberryCount,
@@ -117,40 +174,27 @@ export default function CustomizePage() {
     }
   }
 
-  // 保存した苺の配置を読み込み
+  // 苺の配置を読み込み
   function loadPlacement() {
     try {
-      const saved = localStorage.getItem("cakecanvas-strawberries");
+      const saved = localStorage.getItem(
+        "cakecanvas-strawberries"
+      );
 
       if (!saved) {
         alert("保存データがありません");
         return;
       }
 
-      const data: SavedPlacement = JSON.parse(saved);
+      const data: unknown = JSON.parse(saved);
 
-      if (
-        !Number.isInteger(data?.strawberryCount) ||
-        data.strawberryCount < 0 ||
-        data.strawberryCount > MAX_STRAWBERRIES ||
-        !Array.isArray(data.strawberryPositions) ||
-        data.strawberryPositions.length !== MAX_STRAWBERRIES ||
-        !data.strawberryPositions.every(
-          (p) =>
-            p !== null &&
-            Number.isFinite(p?.x) &&
-            Number.isFinite(p?.y)
-        )
-      ) {
+      if (!isSavedPlacement(data)) {
         throw new Error("保存データが不正です");
       }
 
-      setStrawberryCount(data.strawberryCount);
-
-      setStrawberryPositions(
-        data.strawberryPositions.map((p) =>
-          limitPosition(p.x, p.y)
-        )
+      restoreStrawberries(
+        data.strawberryCount,
+        data.strawberryPositions
       );
 
       alert("苺の配置を読み込みました！");
@@ -212,6 +256,7 @@ export default function CustomizePage() {
               className="cursor-grab"
               onPointerDown={(event) => {
                 event.preventDefault();
+
                 draggingIndex.current = index;
 
                 event.currentTarget.ownerSVGElement?.setPointerCapture(
@@ -219,6 +264,7 @@ export default function CustomizePage() {
                 );
               }}
             >
+              {/* 苺 */}
               <circle
                 cx={position.x}
                 cy={position.y}
@@ -228,6 +274,7 @@ export default function CustomizePage() {
                 strokeWidth="2"
               />
 
+              {/* 番号 */}
               <text
                 x={position.x}
                 y={position.y + 5}
@@ -252,7 +299,9 @@ export default function CustomizePage() {
           <button
             key={color.value}
             type="button"
-            onClick={() => setSpongeColor(color.value)}
+            onClick={() =>
+              setSpongeColor(color.value)
+            }
             className="rounded border bg-white px-4 py-2 text-black"
           >
             {color.name}
@@ -270,7 +319,9 @@ export default function CustomizePage() {
           <button
             key={color.value}
             type="button"
-            onClick={() => setCreamColor(color.value)}
+            onClick={() =>
+              setCreamColor(color.value)
+            }
             className="rounded border bg-white px-4 py-2 text-black"
           >
             {color.name}
@@ -288,25 +339,23 @@ export default function CustomizePage() {
       </p>
 
       <div className="mt-4 flex justify-center gap-4">
+        {/* 苺を削除 */}
         <button
           type="button"
-          onClick={() =>
-            setStrawberryCount((n) => Math.max(0, n - 1))
-          }
+          onClick={removeStrawberry}
           disabled={strawberryCount === 0}
           className="rounded bg-white px-6 py-2 text-black disabled:opacity-40"
         >
           削除
         </button>
 
+        {/* 苺を追加 */}
         <button
           type="button"
-          onClick={() =>
-            setStrawberryCount((n) =>
-              Math.min(MAX_STRAWBERRIES, n + 1)
-            )
+          onClick={addStrawberry}
+          disabled={
+            strawberryCount === MAX_STRAWBERRIES
           }
-          disabled={strawberryCount === MAX_STRAWBERRIES}
           className="rounded bg-rose-500 px-6 py-2 text-white disabled:opacity-40"
         >
           苺を追加
@@ -365,9 +414,11 @@ export default function CustomizePage() {
                   <td className="border p-3">
                     苺{index + 1}
                   </td>
+
                   <td className="border p-3">
                     {position.x}
                   </td>
+
                   <td className="border p-3">
                     {position.y}
                   </td>
@@ -383,7 +434,7 @@ export default function CustomizePage() {
         )}
       </section>
 
-      {/* 今回追加：価格の自動計算 */}
+      {/* 価格の自動計算 */}
       <section className="mx-auto mt-10 max-w-md rounded-xl bg-white p-6 shadow">
         <h3 className="mb-6 text-xl font-bold text-slate-900">
           お見積もり
