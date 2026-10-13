@@ -3,7 +3,6 @@
 
 import { create } from "zustand";
 
-// 苺の座標
 export type Position = {
   x: number;
   y: number;
@@ -12,16 +11,16 @@ export type Position = {
 // 開発用の仮価格・上限
 export const CAKE_PRICE = 3500;
 export const STRAWBERRY_PRICE = 200;
+export const MESSAGE_PRICE = 300;
 export const MAX_STRAWBERRIES = 3;
 
-// 苺の初期位置
 const initialPositions: Position[] = [
   { x: 85, y: 85 },
   { x: 155, y: 85 },
   { x: 120, y: 155 },
 ];
 
-// ケーキ内に座標を制限する
+// 苺の移動範囲を制限する
 export function limitPosition(
   x: number,
   y: number
@@ -37,19 +36,20 @@ export function limitPosition(
   };
 }
 
-// Zustandで管理するデータと操作
 type CakeStore = {
   spongeColor: string;
   creamColor: string;
   strawberryCount: number;
   strawberryPositions: Position[];
 
+  hasMessagePlate: boolean;
+  message: string;
+
   setSpongeColor: (color: string) => void;
   setCreamColor: (color: string) => void;
 
   addStrawberry: () => void;
   removeStrawberry: () => void;
-
   moveStrawberry: (
     index: number,
     position: Position
@@ -59,26 +59,29 @@ type CakeStore = {
     count: number,
     positions: Position[]
   ) => void;
+
+  setHasMessagePlate: (enabled: boolean) => void;
+  setMessage: (message: string) => void;
 };
 
-// Zustandストア
 export const useCakeStore = create<CakeStore>((set) => ({
   spongeColor: "#F5D6A0",
   creamColor: "#FFFFFF",
   strawberryCount: 0,
+
   strawberryPositions: initialPositions.map(
     (position) => ({ ...position })
   ),
 
-  // スポンジ色を変更
+  hasMessagePlate: false,
+  message: "",
+
   setSpongeColor: (color) =>
     set({ spongeColor: color }),
 
-  // クリーム色を変更
   setCreamColor: (color) =>
     set({ creamColor: color }),
 
-  // 苺を追加
   addStrawberry: () =>
     set((state) => ({
       strawberryCount: Math.min(
@@ -87,7 +90,6 @@ export const useCakeStore = create<CakeStore>((set) => ({
       ),
     })),
 
-  // 苺を削除
   removeStrawberry: () =>
     set((state) => ({
       strawberryCount: Math.max(
@@ -96,7 +98,6 @@ export const useCakeStore = create<CakeStore>((set) => ({
       ),
     })),
 
-  // 指定された苺を移動
   moveStrawberry: (index, position) =>
     set((state) => ({
       strawberryPositions: state.strawberryPositions.map(
@@ -107,7 +108,6 @@ export const useCakeStore = create<CakeStore>((set) => ({
       ),
     })),
 
-  // 保存データから苺を復元
   restoreStrawberries: (count, positions) =>
     set({
       strawberryCount: Math.max(
@@ -118,4 +118,10 @@ export const useCakeStore = create<CakeStore>((set) => ({
         limitPosition(position.x, position.y)
       ),
     }),
+
+  setHasMessagePlate: (enabled) =>
+    set({ hasMessagePlate: enabled }),
+
+  setMessage: (message) =>
+    set({ message }),
 }));
