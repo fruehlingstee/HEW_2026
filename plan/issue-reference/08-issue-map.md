@@ -1,5 +1,7 @@
 # Issue 参照マップ
 
+> **2026-10-13変更（本チャットで承認）:** スマホ対応を廃止し、買い手・店舗・共有画面をPC専用とする。スマホ向けUI・タッチ操作・iPhone／Android検証と検証用iPhone確保は対象外。共有はPCでのURL閲覧・画像保存に変更し、QRによるスマホ向け導線は廃止する。10月30日の3D判定と性能目標はPCで維持する。過去のモバイル対応の記述は履歴であり、現行要件ではない。
+
 各 Issue に着手するときは、まず [README.md](./README.md) の優先順位を確認し、この表から必要な設計資料へ進む。Issue 本文と設計資料が食い違う場合は `plan/status.md` を優先し、判断結果を Issue に記録する。
 
 略記:
@@ -79,7 +81,7 @@
 | #60 NOTIFY-01 emails | FN, DB, BL | テンプレート、履歴、再送 |
 | #61 PRIVACY-01 cleanup | FN, DB, BL | 匿名化・期限削除処理 |
 | #62 DEMO-01 demo / reset | BL, UI | 決済・PII・本番枠なしのデモ |
-| #63 SHARE-01 QR / image | FN, BL, UI | 個人情報なし共有、QR、画像保存 |
+| #63 SHARE-01 URL / image | FN, BL, UI | 個人情報なし共有、URLコピー、PC画像保存 |
 
 ## Phase 6: テスト・品質
 
