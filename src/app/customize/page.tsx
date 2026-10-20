@@ -6,10 +6,12 @@ import { useRef, useState, type PointerEvent } from "react";
 import {
   useCakeStore,
   CAKE_PRICE,
-  STRAWBERRY_PRICE,
   MESSAGE_PRICE,
-  MAX_STRAWBERRIES,
+  MAX_DECORATIONS,
+  DECORATION_CATALOG,
   type CakeDesign,
+  type Decoration,
+  type DecorationType,
 } from "@/store/cakeStore";
 
 // 購入フロー
@@ -34,16 +36,17 @@ const creamColors = [
   { name: "ブラウン", value: "#8B4513" },
 ];
 
-// 保存先のキー
-const STORAGE_KEY = "cakecanvas-design-v1";
+// 保存キー
+const STORAGE_KEY = "cakecanvas-design-v2";
+const OLD_STORAGE_KEY = "cakecanvas-design-v1";
 
-// 保存データの形式
+// 保存形式
 type SavedDesign = {
-  version: 1;
+  version: 2;
   design: CakeDesign;
 };
 
-// オブジェクトかどうかを確認
+// 汎用オブジェクト判定
 function isRecord(
   value: unknown
 ): value is Record<string, unknown> {
@@ -54,7 +57,7 @@ function isRecord(
   );
 }
 
-// カラーコードの検証
+// 色コードの判定
 function isHexColor(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -62,11 +65,24 @@ function isHexColor(value: unknown): value is string {
   );
 }
 
-// メッセージで使用可能な文字
+// 飾りの種類を確認
+function isDecorationType(
+  value: unknown
+): value is DecorationType {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(
+      DECORATION_CATALOG,
+      value
+    )
+  );
+}
+
+// メッセージに使える文字
 const allowedMessage =
   /^[A-Za-z0-9０-９Ａ-Ｚａ-ｚぁ-ゖァ-ヶ一-龯々〆〤ー 　。、！？!?・（）()「」『』.,-]+$/u;
 
-// メッセージの入力チェック
+// メッセージを検証
 function validateMessage(
   value: string
 ): string | null {
@@ -89,93 +105,151 @@ function validateMessage(
   return null;
 }
 
-// 保存データが正しいか確認
-function isSavedDesign(
+// デザインデータの検証
+function isValidDesign(
   value: unknown
-): value is SavedDesign {
+): value is CakeDesign {
   if (!isRecord(value)) return false;
 
-  if (value.version !== 1) return false;
-
-  const design = value.design;
-
-  if (!isRecord(design)) return false;
-
   if (
-    !isHexColor(design.spongeColor) ||
-    !isHexColor(design.creamColor)
+    !isHexColor(value.spongeColor) ||
+    !isHexColor(value.creamColor)
   ) {
     return false;
   }
 
   if (
-    typeof design.strawberryCount !== "number" ||
-    !Number.isInteger(design.strawberryCount) ||
-    design.strawberryCount < 0 ||
-    design.strawberryCount > MAX_STRAWBERRIES
+    typeof value.hasMessagePlate !== "boolean" ||
+    typeof value.message !== "string"
   ) {
     return false;
   }
 
-  const positions = design.strawberryPositions;
+  if (Array.from(value.message).length > 20) {
+    return false;
+  }
 
   if (
-    !Array.isArray(positions) ||
-    positions.length !== MAX_STRAWBERRIES
+    value.message !== "" &&
+    !allowedMessage.test(value.message)
   ) {
     return false;
   }
 
-  const validPositions = positions.every(
-    (position: unknown) => {
-      if (!isRecord(position)) return false;
+  if (
+    value.hasMessagePlate &&
+    validateMessage(value.message) !== null
+  ) {
+    return false;
+  }
 
-      return (
-        typeof position.x === "number" &&
-        typeof position.y === "number" &&
-        Number.isFinite(position.x) &&
-        Number.isFinite(position.y)
-      );
+  const decorations = value.decorations;
+
+  if (
+    !Array.isArray(decorations) ||
+    decorations.length > MAX_DECORATIONS
+  ) {
+    return false;
+  }
+
+  const ids = new Set<string>();
+
+  return decorations.every((item: unknown) => {
+    if (!isRecord(item)) return false;
+
+    if (
+      typeof item.id !== "string" ||
+      item.id.length === 0 ||
+      !isDecorationType(item.type) ||
+      typeof item.x !== "number" ||
+      typeof item.y !== "number" ||
+      !Number.isFinite(item.x) ||
+      !Number.isFinite(item.y)
+    ) {
+      return false;
     }
-  );
 
-  if (!validPositions) return false;
+    if (ids.has(item.id)) return false;
 
-  if (
-    typeof design.hasMessagePlate !== "boolean" ||
-    typeof design.message !== "string"
-  ) {
-    return false;
-  }
-
-  if (
-    Array.from(design.message).length > 20 ||
-    (design.message !== "" &&
-      !allowedMessage.test(design.message))
-  ) {
-    return false;
-  }
-
-  if (
-    design.hasMessagePlate &&
-    validateMessage(design.message) !== null
-  ) {
-    return false;
-  }
-
-  return true;
+    ids.add(item.id);
+    return true;
+  });
 }
 
-// 金額表示
+// 以前の保存形式から移行する
+function migrateOldDesign(
+  value: unknown
+): CakeDesign | null {
+  if (!isRecord(value) || value.version !== 1) {
+    return null;
+  }
+
+  const old = value.design;
+
+  if (!isRecord(old)) return null;
+
+  const count = old.strawberryCount;
+  const positions = old.strawberryPositions;
+
+  if (
+    typeof count !== "number" ||
+    !Number.isInteger(count) ||
+    count < 0 ||
+    count > 3 ||
+    !Array.isArray(positions) ||
+    positions.length !== 3
+  ) {
+    return null;
+  }
+
+  const decorations: Decoration[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const position: unknown = positions[i];
+
+    if (
+      !isRecord(position) ||
+      typeof position.x !== "number" ||
+      typeof position.y !== "number" ||
+      !Number.isFinite(position.x) ||
+      !Number.isFinite(position.y)
+    ) {
+      return null;
+    }
+
+    decorations.push({
+      id: `legacy-strawberry-${i + 1}`,
+      type: "strawberry",
+      x: position.x,
+      y: position.y,
+    });
+  }
+
+  const design = {
+    spongeColor: old.spongeColor,
+    creamColor: old.creamColor,
+    decorations,
+    hasMessagePlate: old.hasMessagePlate,
+    message: old.message,
+  };
+
+  return isValidDesign(design) ? design : null;
+}
+
+// 金額を表示
 function formatPrice(price: number) {
   return price.toLocaleString("ja-JP") + "円";
 }
 
-// ケーキの上面図
+// ケーキの俯瞰SVG
 function CakePreview({
   editable,
+  selectedId,
+  onSelect,
 }: {
   editable: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
 }) {
   const spongeColor = useCakeStore(
     (state) => state.spongeColor
@@ -185,29 +259,24 @@ function CakePreview({
     (state) => state.creamColor
   );
 
-  const strawberryCount = useCakeStore(
-    (state) => state.strawberryCount
+  const decorations = useCakeStore(
+    (state) => state.decorations
   );
 
-  const strawberryPositions = useCakeStore(
-    (state) => state.strawberryPositions
+  const moveDecoration = useCakeStore(
+    (state) => state.moveDecoration
   );
 
-  const moveStrawberry = useCakeStore(
-    (state) => state.moveStrawberry
-  );
+  // ドラッグ中の飾りID
+  const draggingId = useRef<string | null>(null);
 
-  const draggingIndex = useRef<number | null>(null);
-
-  // ドラッグ中の座標更新
   function handlePointerMove(
     event: PointerEvent<SVGSVGElement>
   ) {
     if (!editable) return;
 
-    const index = draggingIndex.current;
-
-    if (index === null) return;
+    const id = draggingId.current;
+    if (id === null) return;
 
     const rect =
       event.currentTarget.getBoundingClientRect();
@@ -220,24 +289,24 @@ function CakePreview({
       ((event.clientY - rect.top) / rect.height) *
       240;
 
-    moveStrawberry(index, { x, y });
+    moveDecoration(id, { x, y });
   }
 
   return (
     <svg
       viewBox="0 0 240 240"
-      className="mx-auto my-6 h-60 w-60 touch-none select-none"
+      className="mx-auto my-6 h-64 w-64 touch-none select-none"
       role="img"
       aria-label="ケーキの上面図"
       onPointerMove={handlePointerMove}
       onPointerUp={() => {
-        draggingIndex.current = null;
+        draggingId.current = null;
       }}
       onPointerCancel={() => {
-        draggingIndex.current = null;
+        draggingId.current = null;
       }}
       onLostPointerCapture={() => {
-        draggingIndex.current = null;
+        draggingId.current = null;
       }}
     >
       {/* スポンジ */}
@@ -256,58 +325,67 @@ function CakePreview({
         fill={creamColor}
       />
 
-      {/* 苺の配置 */}
-      {strawberryPositions
-        .slice(0, strawberryCount)
-        .map((position, index) => (
-          <g
-            key={index}
-            className={
-              editable ? "cursor-grab" : ""
+      {/* 飾りを描画 */}
+      {decorations.map((decoration, index) => (
+        <g
+          key={decoration.id}
+          className={editable ? "cursor-grab" : ""}
+          onPointerDown={(event) => {
+            if (!editable) return;
+
+            event.preventDefault();
+
+            draggingId.current = decoration.id;
+            onSelect(decoration.id);
+
+            event.currentTarget.ownerSVGElement?.setPointerCapture(
+              event.pointerId
+            );
+          }}
+        >
+          <circle
+            cx={decoration.x}
+            cy={decoration.y}
+            r="14"
+            fill="#DC4349"
+            stroke={
+              selectedId === decoration.id && editable
+                ? "#EAB308"
+                : "#A92D35"
             }
-            onPointerDown={(event) => {
-              if (!editable) return;
+            strokeWidth={
+              selectedId === decoration.id && editable
+                ? 4
+                : 2
+            }
+          />
 
-              event.preventDefault();
-
-              draggingIndex.current = index;
-
-              event.currentTarget.ownerSVGElement?.setPointerCapture(
-                event.pointerId
-              );
-            }}
+          <text
+            x={decoration.x}
+            y={decoration.y + 4}
+            textAnchor="middle"
+            fill="white"
+            fontSize="12"
+            fontWeight="bold"
+            pointerEvents="none"
           >
-            <circle
-              cx={position.x}
-              cy={position.y}
-              r="18"
-              fill="#DC4349"
-              stroke="#A92D35"
-              strokeWidth="2"
-            />
-
-            <text
-              x={position.x}
-              y={position.y + 5}
-              textAnchor="middle"
-              fill="white"
-              fontSize="15"
-              fontWeight="bold"
-              pointerEvents="none"
-            >
-              {index + 1}
-            </text>
-          </g>
-        ))}
+            {index + 1}
+          </text>
+        </g>
+      ))}
     </svg>
   );
 }
 
 export default function CustomizePage() {
-  // 表示中の画面
+  // 現在の画面
   const [step, setStep] = useState(0);
 
-  // Zustandから情報を取得
+  // 選択中の飾り
+  const [selectedId, setSelectedId] =
+    useState<string | null>(null);
+
+  // Zustandの状態
   const spongeColor = useCakeStore(
     (state) => state.spongeColor
   );
@@ -316,12 +394,8 @@ export default function CustomizePage() {
     (state) => state.creamColor
   );
 
-  const strawberryCount = useCakeStore(
-    (state) => state.strawberryCount
-  );
-
-  const strawberryPositions = useCakeStore(
-    (state) => state.strawberryPositions
+  const decorations = useCakeStore(
+    (state) => state.decorations
   );
 
   const hasMessagePlate = useCakeStore(
@@ -341,16 +415,16 @@ export default function CustomizePage() {
     (state) => state.setCreamColor
   );
 
-  const addStrawberry = useCakeStore(
-    (state) => state.addStrawberry
+  const addDecoration = useCakeStore(
+    (state) => state.addDecoration
   );
 
-  const removeStrawberry = useCakeStore(
-    (state) => state.removeStrawberry
+  const removeDecoration = useCakeStore(
+    (state) => state.removeDecoration
   );
 
-  const moveStrawberry = useCakeStore(
-    (state) => state.moveStrawberry
+  const moveDecoration = useCakeStore(
+    (state) => state.moveDecoration
   );
 
   const setHasMessagePlate = useCakeStore(
@@ -365,56 +439,85 @@ export default function CustomizePage() {
     (state) => state.restoreDesign
   );
 
-  // 価格計算
-  const strawberryTotal =
-    strawberryCount * STRAWBERRY_PRICE;
+  // 飾りの料金
+  const decorationTotal = decorations.reduce(
+    (total, decoration) =>
+      total +
+      DECORATION_CATALOG[decoration.type].price,
+    0
+  );
 
+  // メッセージ料金
   const messageTotal =
     hasMessagePlate ? MESSAGE_PRICE : 0;
 
+  // 合計金額
   const totalPrice =
     CAKE_PRICE +
-    strawberryTotal +
+    decorationTotal +
     messageTotal;
 
-  // メッセージ入力エラー
   const messageError = hasMessagePlate
     ? validateMessage(message)
     : null;
 
-  // 次の画面
+  // 飾りの数
+  const decorationCount = decorations.length;
+
+  // 選択中の飾り
+  const selectedDecoration = decorations.find(
+    (decoration) => decoration.id === selectedId
+  );
+
+  // 次へ
   function nextStep() {
     if (step === 2 && messageError) return;
 
     setStep((current) =>
-      Math.min(3, current + 1)
+      Math.min(steps.length - 1, current + 1)
     );
   }
 
-  // 前の画面
+  // 戻る
   function previousStep() {
     setStep((current) =>
       Math.max(0, current - 1)
     );
   }
 
-  // 苺①を右へ移動
-  function moveStrawberryRight() {
-    if (strawberryCount === 0) return;
+  // 苺を追加
+  function addStrawberry() {
+    addDecoration("strawberry");
+  }
 
-    const position = strawberryPositions[0];
+  // 選択中の飾りを削除
+  function removeSelectedDecoration() {
+    const target =
+      selectedDecoration ??
+      decorations[decorations.length - 1];
 
-    if (!position) return;
+    if (!target) return;
 
-    moveStrawberry(0, {
-      x: position.x + 10,
-      y: position.y,
+    removeDecoration(target.id);
+    setSelectedId(null);
+  }
+
+  // 選択中の飾りを右へ移動
+  function moveSelectedRight() {
+    const target =
+      selectedDecoration ?? decorations[0];
+
+    if (!target) return;
+
+    moveDecoration(target.id, {
+      x: target.x + 10,
+      y: target.y,
     });
   }
 
   // デザイン全体を保存
   function saveDesign() {
-    if (hasMessagePlate && messageError) {
+    if (messageError) {
       alert(messageError);
       return;
     }
@@ -422,19 +525,17 @@ export default function CustomizePage() {
     const design: CakeDesign = {
       spongeColor,
       creamColor,
-      strawberryCount,
 
-      strawberryPositions:
-        strawberryPositions.map(
-          (position) => ({ ...position })
-        ),
+      decorations: decorations.map(
+        (decoration) => ({ ...decoration })
+      ),
 
       hasMessagePlate,
       message: hasMessagePlate ? message : "",
     };
 
     const savedData: SavedDesign = {
-      version: 1,
+      version: 2,
       design,
     };
 
@@ -450,31 +551,61 @@ export default function CustomizePage() {
     }
   }
 
-  // 保存したデザインを読み込む
+  // 保存したデザインを読み込み
   function loadDesign() {
     try {
-      const saved = localStorage.getItem(
-        STORAGE_KEY
-      );
+      const saved = localStorage.getItem(STORAGE_KEY);
 
-      if (!saved) {
-        alert("保存したデザインがありません");
+      let design: CakeDesign | null = null;
+
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+
+        if (
+          isRecord(parsed) &&
+          parsed.version === 2 &&
+          isValidDesign(parsed.design)
+        ) {
+          design = parsed.design;
+        } else {
+          throw new Error("保存データが不正です");
+        }
+      } else {
+        // 以前の形式からも読み込み可能
+        const oldSaved =
+          localStorage.getItem(OLD_STORAGE_KEY);
+
+        if (oldSaved) {
+          const parsed: unknown =
+            JSON.parse(oldSaved);
+
+          design = migrateOldDesign(parsed);
+        }
+      }
+
+      if (!design) {
+        alert("読み込めるデザインがありません");
         return;
       }
 
-      const parsed: unknown = JSON.parse(saved);
+      restoreDesign(design);
+      setSelectedId(null);
 
-      if (!isSavedDesign(parsed)) {
-        throw new Error("保存データが不正です");
-      }
-
-      // Zustandのデータを一括更新
-      restoreDesign(parsed.design);
-
-      alert("デザイン全体を読み込みました！");
+      alert("デザインを読み込みました！");
     } catch {
       alert("デザインを読み込めませんでした");
     }
+  }
+
+  // 共通のケーキプレビュー
+  function preview(editable: boolean) {
+    return (
+      <CakePreview
+        editable={editable}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+      />
+    );
   }
 
   return (
@@ -489,7 +620,7 @@ export default function CustomizePage() {
           ケーキを、あなたらしく。
         </p>
 
-        {/* デザイン全体の保存・読み込み */}
+        {/* 保存と読み込み */}
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             type="button"
@@ -509,11 +640,11 @@ export default function CustomizePage() {
         </div>
 
         <p className="mt-2 text-xs text-slate-500">
-          ※現在はブラウザ内への保存です。
-          注文やDBへの登録は行いません。
+          ※ブラウザ内での保存です。
+          DBへの保存はまだ行いません。
         </p>
 
-        {/* 進捗表示 */}
+        {/* 進捗 */}
         <div className="mt-8 grid grid-cols-4 gap-2">
           {steps.map((name, index) => (
             <div
@@ -529,7 +660,7 @@ export default function CustomizePage() {
           ))}
         </div>
 
-        {/* STEP 1：色選択 */}
+        {/* STEP 1 色選択 */}
         {step === 0 && (
           <section className="mt-8 rounded-xl bg-white p-6">
             <h2 className="text-2xl font-bold">
@@ -540,7 +671,7 @@ export default function CustomizePage() {
               スポンジとクリームの色を選んでください。
             </p>
 
-            <CakePreview editable={false} />
+            {preview(false)}
 
             <h3 className="mt-6 font-bold">
               スポンジの色
@@ -596,104 +727,133 @@ export default function CustomizePage() {
           </section>
         )}
 
-        {/* STEP 2：飾り付け */}
+        {/* STEP 2 飾り付け */}
         {step === 1 && (
           <section className="mt-8 rounded-xl bg-white p-6">
             <h2 className="text-2xl font-bold">
-              ② 苺の飾り付け
+              ② 飾り付け
             </h2>
 
             <p className="mt-2 text-slate-600">
-              苺を追加し、ドラッグして配置してください。
+              苺を追加して、ドラッグで配置してください。
             </p>
 
-            <CakePreview editable={true} />
+            {preview(true)}
 
             <p className="text-center font-bold">
-              苺の数：{strawberryCount}個
+              飾りの数：
+              {decorationCount}/{MAX_DECORATIONS}個
             </p>
 
-            <div className="mt-4 flex justify-center gap-3">
+            {/* 飾りを追加・削除 */}
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
               <button
                 type="button"
-                onClick={removeStrawberry}
-                disabled={strawberryCount === 0}
-                className="rounded border px-5 py-2 disabled:opacity-40"
+                onClick={removeSelectedDecoration}
+                disabled={decorationCount === 0}
+                className="rounded border border-slate-300 px-5 py-2 disabled:opacity-40"
               >
-                削除
+                選択した飾りを削除
               </button>
 
               <button
                 type="button"
                 onClick={addStrawberry}
                 disabled={
-                  strawberryCount >= MAX_STRAWBERRIES
+                  decorationCount >= MAX_DECORATIONS
                 }
                 className="rounded bg-rose-600 px-5 py-2 text-white disabled:opacity-40"
               >
-                苺を追加
+                苺を追加（200円）
               </button>
             </div>
 
-            {/* 座標移動 */}
+            <p className="mt-3 text-center text-sm text-slate-500">
+              削除したい飾りをクリックして選択できます。
+              未選択の場合は最後の飾りを削除します。
+            </p>
+
+            {/* 座標の移動 */}
             <button
               type="button"
-              onClick={moveStrawberryRight}
-              disabled={strawberryCount === 0}
+              onClick={moveSelectedRight}
+              disabled={decorationCount === 0}
               className="mx-auto mt-4 block rounded bg-rose-700 px-5 py-2 text-white disabled:opacity-40"
             >
-              苺①を右へ移動
+              選択した飾りを右へ移動
             </button>
 
             {/* 座標一覧 */}
-            <h3 className="mt-8 text-center font-bold">
-              苺の座標一覧
+            <h3 className="mt-8 text-center text-xl font-bold">
+              飾りの座標一覧
             </h3>
 
-            <table className="mt-3 w-full border-collapse text-center">
-              <thead>
-                <tr className="bg-rose-100">
-                  <th className="border p-2">番号</th>
-                  <th className="border p-2">X</th>
-                  <th className="border p-2">Y</th>
-                </tr>
-              </thead>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full border-collapse text-center">
+                <thead>
+                  <tr className="bg-rose-100">
+                    <th className="border p-2">番号</th>
+                    <th className="border p-2">種類</th>
+                    <th className="border p-2">X</th>
+                    <th className="border p-2">Y</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                {strawberryPositions
-                  .slice(0, strawberryCount)
-                  .map((position, index) => (
-                    <tr key={index}>
-                      <td className="border p-2">
-                        苺{index + 1}
-                      </td>
+                <tbody>
+                  {decorations.map(
+                    (decoration, index) => (
+                      <tr
+                        key={decoration.id}
+                        className={
+                          selectedId === decoration.id
+                            ? "bg-amber-50"
+                            : ""
+                        }
+                      >
+                        <td className="border p-2">
+                          {index + 1}
+                        </td>
 
-                      <td className="border p-2">
-                        {position.x}
-                      </td>
+                        <td className="border p-2">
+                          {
+                            DECORATION_CATALOG[
+                              decoration.type
+                            ].name
+                          }
+                        </td>
 
-                      <td className="border p-2">
-                        {position.y}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+                        <td className="border p-2">
+                          {decoration.x}
+                        </td>
 
-            {strawberryCount === 0 && (
+                        <td className="border p-2">
+                          {decoration.y}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {decorationCount === 0 && (
               <p className="mt-3 text-center text-slate-500">
-                苺を追加すると座標が表示されます。
+                飾りを追加すると座標が表示されます。
               </p>
             )}
 
-            <p className="mt-5 text-center">
-              苺の小計：
-              {formatPrice(strawberryTotal)}
+            <p className="mt-6 text-center font-bold">
+              飾りの小計：
+              {formatPrice(decorationTotal)}
+            </p>
+
+            <p className="mt-3 text-center text-sm text-slate-500">
+              ※現時点で追加できる飾りは苺のみです。
             </p>
           </section>
         )}
 
-        {/* STEP 3：メッセージ */}
+        {/* STEP 3 メッセージ */}
         {step === 2 && (
           <section className="mt-8 rounded-xl bg-white p-6">
             <h2 className="text-2xl font-bold">
@@ -717,7 +877,7 @@ export default function CustomizePage() {
                 className="h-5 w-5"
               />
               メッセージプレートを追加する
-              （300円・仮）
+              （300円）
             </label>
 
             {hasMessagePlate && (
@@ -772,7 +932,7 @@ export default function CustomizePage() {
           </section>
         )}
 
-        {/* STEP 4：見積・確認 */}
+        {/* STEP 4 見積・確認 */}
         {step === 3 && (
           <section className="mt-8 rounded-xl bg-white p-6">
             <h2 className="text-2xl font-bold">
@@ -780,11 +940,12 @@ export default function CustomizePage() {
             </h2>
 
             <p className="mt-2 text-slate-600">
-              カスタマイズした内容を確認してください。
+              カスタマイズ内容を確認してください。
             </p>
 
-            <CakePreview editable={false} />
+            {preview(false)}
 
+            {/* 選択内容 */}
             <div className="space-y-3">
               <p>
                 スポンジ：
@@ -798,7 +959,14 @@ export default function CustomizePage() {
 
               <p>
                 苺：
-                <strong>{strawberryCount}個</strong>
+                <strong>
+                  {
+                    decorations.filter(
+                      (d) => d.type === "strawberry"
+                    ).length
+                  }
+                  個
+                </strong>
               </p>
 
               <p>
@@ -811,7 +979,7 @@ export default function CustomizePage() {
               </p>
             </div>
 
-            {/* 価格 */}
+            {/* 見積もり */}
             <h3 className="mt-8 text-xl font-bold">
               お見積もり
             </h3>
@@ -831,10 +999,10 @@ export default function CustomizePage() {
 
               <div className="flex justify-between">
                 <span>
-                  苺（{strawberryCount}個）
+                  飾り（{decorationCount}個）
                 </span>
                 <span>
-                  {formatPrice(strawberryTotal)}
+                  {formatPrice(decorationTotal)}
                 </span>
               </div>
 
@@ -845,10 +1013,11 @@ export default function CustomizePage() {
                 </span>
               </div>
 
-              <hr />
+              <hr className="border-slate-200" />
 
               <div className="flex justify-between text-xl font-bold">
                 <span>合計（税抜）</span>
+
                 <span className="text-rose-700">
                   {formatPrice(totalPrice)}
                 </span>
@@ -857,7 +1026,7 @@ export default function CustomizePage() {
 
             <p className="mt-6 text-sm text-slate-500">
               ※開発用の仮価格です。
-              実際の注文や決済は行われません。
+              注文・決済はまだ行われません。
             </p>
           </section>
         )}
