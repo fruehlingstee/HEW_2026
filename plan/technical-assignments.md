@@ -106,6 +106,7 @@ TypeScript / React Three Fiber / drei / Three.js / Blender / glTF / Draco圧縮 
 - R3Fの3Dシーン、カメラ、ライト、回転・俯瞰表示
 - レイキャストによるケーキ表面へのドラッグ配置
 - 配置ごとの `pos_x`、`pos_y`、`pos_z`、`rot_y`、`scale` の作成・更新
+- 2026-10-19の採用方針: m単位、上面中心原点、12時-Z・3時+X、Y回転のみ（ラジアン）。苺PoCはpos_y=0・scale=1で上下移動・傾き・拡縮なし。③が通常飾りの実測footprint_radius_mを用意し、④と同じ範囲判定・seq_no（保存配列順1〜N）を使う。モデル実測・4人レビューは未完了。
 - 保存した配置座標から3D配置を再現する処理
 - ④と共同で配置データの形式を確定する
 

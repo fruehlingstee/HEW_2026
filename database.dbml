@@ -1,14 +1,15 @@
-// CakeCanvas: 採用済み仕様のDBML（2026-10-15）。実DB作成用の完成DDLではない。
+// CakeCanvas: 採用済み仕様のDBML（2026-10-19更新）。実DB作成用の完成DDLではない。
 // 根拠: plan/status.md / plan/issue-reference/04-database-design.md / plan/kikaku.md
 // DBML仕様: https://dbml.dbdiagram.io/docs/
 // 未決事項 DB-01〜DB-09: plan/open-questions.md。未決の列・制約を補完して適用しない。
+// DB-04: 配置・デモ所属・返金の5複合FKを反映。Order/Holdの対応・デモ決済禁止・不変条件のトリガーは未実装。
 // IDはアプリ側でCUIDを生成する。SQL関数cuid()や自動連番は定義しない。
 // text / jsonb はPostgreSQLでの表現。updated_atは更新処理側で更新する。
-// FKの削除動作は明記済み2件だけ指定。それ以外の省略は削除方針の合意を意味しない（DB-03）。
+// 2026-10-19: 配置・編集権限・主な削除動作を反映。省略したFKは引き続きDB-03で確認する。
 
 Project CakeCanvas {
   database_type: 'PostgreSQL'
-  Note: '採用済み部分の設計図。座標・権限・テナント整合・清掃制約等は未完成。migrationとして直接適用しない。金額は円整数、日時はUTC、受取日はJSTの暦日。'
+  Note: '採用済み部分の設計図。配置・編集権限の保存列は追加済み。外周デコ・テナント整合・清掃制約等は未完成。migrationとして直接適用しない。金額は円整数、日時はUTC、受取日はJSTの暦日。'
 }
 
 Enum part_kind {
@@ -112,9 +113,22 @@ Table demo_sessions {
   expires_at timestamptz [not null]
   revoked_at timestamptz [null]
   indexes {
+    (id, store_id) [unique]
     (store_id, expires_at)
   }
   Note: '展示利用者のデモデータをまとめる。寿命と削除制約はDB-03・DB-09。'
+}
+
+Table design_edit_sessions {
+  id text [pk, not null]
+  token_hash text [not null, unique]
+  created_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz [null]
+  indexes {
+    (expires_at)
+  }
+  Note: '通常利用者の編集権限。Cookieの32byte乱数をSHA-256で照合。認可済み編集で期限を7日後へ更新、閲覧では延長しない。デモはdemo_sessionsを使う。'
 }
 
 Table parts {
@@ -123,15 +137,19 @@ Table parts {
   name text [not null]
   asset_key text [not null]
   kind part_kind [not null]
+  footprint_radius_m float8 [null, note: '通常飾りは必須。上面投影を囲む円の実測半径m。外周デコは寸法仕様確定までNULL可']
   unit_price integer [not null, check: `unit_price >= 0`]
   sort_order integer [not null]
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
   indexes {
+    (id, store_id) [unique]
     (store_id, sort_order)
   }
   checks {
     `kind <> 'border_decoration' OR unit_price = 20` [name: 'parts_border_price_check']
+    `footprint_radius_m IS NULL OR (footprint_radius_m > 0 AND footprint_radius_m < 'Infinity'::float8)` [name: 'parts_footprint_radius_check']
+    `kind <> 'standard' OR footprint_radius_m IS NOT NULL` [name: 'parts_standard_radius_check']
   }
   Note: '登録済みパーツは常に利用可能。在庫・is_activeは設けない。参照中のkind変更拒否は更新処理で保証。'
 }
@@ -160,6 +178,8 @@ Table designs {
   id text [pk, not null]
   store_id text [not null]
   demo_session_id text [null]
+  edit_session_id text [null, note: '通常Designは必須、デモではNULL。Cookie紛失時は編集権限を復旧しない']
+  share_token_hash text [null, unique, note: '閲覧用32byte乱数のSHA-256。停止でNULL、再発行で置換。編集権限には使わない']
   sponge_color varchar(7) [not null, note: '#RRGGBB']
   cream_color varchar(7) [not null, note: '#RRGGBB']
   message_text text [null]
@@ -168,24 +188,44 @@ Table designs {
   locked_at timestamptz [null]
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
-  Note: '注文前デザイン。共有・編集用識別子はDB-02の決定後に追加。pending作成と同時にロックし再注文は複製。message_plateは有無をbooleanで表現。'
+  indexes {
+    (demo_session_id, store_id)
+    (id, store_id) [unique]
+    (edit_session_id)
+  }
+  checks {
+    `(demo_session_id IS NULL AND edit_session_id IS NOT NULL) OR (demo_session_id IS NOT NULL AND edit_session_id IS NULL)` [name: 'designs_edit_owner_check']
+  }
+  Note: '注文前デザイン。共有URLは閲覧のみ。pending作成と同時にロックし再注文は複製。所有・期限・ロック・version検証はAPI側で実装する。'
 }
 
 Table placements {
   id text [pk, not null]
+  store_id text [not null, note: 'DesignとPartに共通する店舗。認可済みDesignから導出する']
   design_id text [not null]
   part_id text [not null]
   seq_no integer [not null]
+  pos_x float8 [not null, note: 'メートル。上面中心原点、3時が+X']
+  pos_y float8 [not null, note: 'Y上向き。苺PoCでは0固定']
+  pos_z float8 [not null, note: '12時が-Z、6時が+Z']
+  rot_y float8 [not null, note: 'Y軸回転のみ。ラジアン、0以上2π未満に正規化']
+  scale float8 [not null, note: '苺PoCでは1固定。上下移動・傾き・拡縮操作なし']
   color varchar(7) [null, note: '外周デコは白を含め必須、通常飾りはNULL。parts.kindとの照合が必要']
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
   indexes {
     (design_id, seq_no) [unique]
+    (design_id, store_id)
+    (part_id, store_id)
   }
   checks {
     `color IS NULL OR color ~ '^#[0-9A-F]{6}$'` [name: 'placements_color_check']
+    `seq_no > 0` [name: 'placements_seq_no_check']
+    `pos_x > '-Infinity'::float8 AND pos_x < 'Infinity'::float8 AND pos_y > '-Infinity'::float8 AND pos_y < 'Infinity'::float8 AND pos_z > '-Infinity'::float8 AND pos_z < 'Infinity'::float8` [name: 'placements_position_finite_check']
+    `rot_y >= 0 AND rot_y < 2 * pi()` [name: 'placements_rotation_check']
+    `scale > 0 AND scale < 'Infinity'::float8` [name: 'placements_scale_check']
   }
-  Note: '飾り1個1行。位置・回転・倍率はDB-01が未決のため列を保留。この表だけでは配置を復元できない。パレットへのFKは持たない。'
+  Note: '飾り1個1行。通常飾りPoCは上面・実寸固定。seq_noは保存配列順1〜N、注文時に固定。端までの範囲判定はpartsの実測半径と照合。重なり・外周デコ制約は未決。パレットへのFKなし。'
 }
 
 Table design_palette_colors {
@@ -228,6 +268,7 @@ Table orders {
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
   indexes {
+    (demo_session_id, store_id)
     (store_id, pickup_date, pickup_sequence) [unique]
     (store_id, pickup_date, status)
   }
@@ -304,7 +345,7 @@ Table daily_capacity {
 Table capacity_holds {
   id text [pk, not null]
   store_id text [not null]
-  design_id text [not null, note: '期限後のNULL許容・削除動作はDB-03']
+  design_id text [null, note: 'active中は必須。終端holdはDesign清掃でNULLになり、order_idで決済履歴を追跡する']
   order_id text [null, unique]
   pickup_date date [not null]
   points integer [not null, check: `points > 0`, note: '現行5号は1ポイント']
@@ -316,6 +357,9 @@ Table capacity_holds {
     (store_id, pickup_date, status, expires_at)
   }
   Note: '別途migrationでUNIQUE(design_id) WHERE status = activeを追加。通常のUNIQUE(design_id)で代用しない。注文と同じ店舗・design・受取日はDB-04。'
+  checks {
+    `status <> 'active' OR design_id IS NOT NULL` [name: 'holds_active_design_check']
+  }
 }
 
 Table payments {
@@ -334,6 +378,9 @@ Table payments {
   last_error text [null]
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
+  indexes {
+    (id, order_id) [unique]
+  }
   Note: '1注文1Intent。creatingから開始し不明結果でも別Intentを作らない。デモは禁止。返金はrefundsで管理。'
 }
 
@@ -376,32 +423,37 @@ Table refunds {
   last_error text [null]
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
+  indexes {
+    (payment_id, order_id)
+    (order_id)
+  }
   Note: '0円の申請も記録。処理中・結果不明の予定額も加味して過剰返金を防ぐ。paymentとorderの対応保証はDB-04。'
 }
 
-Ref: store_sessions.store_id > stores.id
-Ref: demo_sessions.store_id > stores.id
-Ref: parts.store_id > stores.id
+Ref: store_sessions.store_id > stores.id [delete: restrict]
+Ref: demo_sessions.store_id > stores.id [delete: restrict]
+Ref: parts.store_id > stores.id [delete: restrict]
 Ref: part_allergens.part_id > parts.id
 Ref: part_allergens.allergen_id > allergens.id
-Ref: designs.store_id > stores.id
-Ref: designs.demo_session_id > demo_sessions.id
-Ref: placements.design_id > designs.id
-Ref: placements.part_id > parts.id
+Ref: designs.store_id > stores.id [delete: restrict]
+Ref: designs.(demo_session_id, store_id) > demo_sessions.(id, store_id) [delete: no action, update: no action]
+Ref: designs.edit_session_id > design_edit_sessions.id [delete: restrict]
+Ref: placements.(design_id, store_id) > designs.(id, store_id) [delete: cascade, update: no action]
+Ref: placements.(part_id, store_id) > parts.(id, store_id) [delete: restrict, update: no action]
 Ref: design_palette_colors.design_id > designs.id [delete: cascade]
-Ref: orders.store_id > stores.id
+Ref: orders.store_id > stores.id [delete: restrict]
 Ref: designs.id - orders.design_id [delete: set null]
-Ref: orders.demo_session_id > demo_sessions.id
+Ref: orders.(demo_session_id, store_id) > demo_sessions.(id, store_id) [delete: no action, update: no action]
 Ref: order_items.order_id > orders.id
 Ref: order_status_logs.order_id > orders.id
-Ref: store_weekly_capacity.store_id > stores.id
-Ref: daily_capacity.store_id > stores.id
-Ref: capacity_holds.store_id > stores.id
-Ref: capacity_holds.design_id > designs.id
+Ref: store_weekly_capacity.store_id > stores.id [delete: restrict]
+Ref: daily_capacity.store_id > stores.id [delete: restrict]
+Ref: capacity_holds.store_id > stores.id [delete: restrict]
+Ref: capacity_holds.design_id > designs.id [delete: set null]
 Ref: orders.id - capacity_holds.order_id
 Ref: orders.id - payments.order_id
 Ref: refunds.order_id > orders.id
-Ref: refunds.payment_id > payments.id
+Ref: refunds.(payment_id, order_id) > payments.(id, order_id) [delete: no action, update: no action]
 
 // platform_fees: 現在値1行か履歴複数行かが未決。DB-06の決定後に追加。
 // rate_limits: 時間窓方式と一意キーが未決。DB-07の決定後に追加。

@@ -1,6 +1,7 @@
-// database.dbml（2026-10-15）に基づくレビュー用部分スキーマ。
-// DB-01〜DB-09が未解決のため、migrate / db pushを実行しない。
-// CHECK制約・active hold部分一意indexはこのファイルだけでは適用されない。
+// database.dbml（2026-10-19更新）に基づくレビュー用部分スキーマ。
+// 配置・編集権限・主な削除動作を反映済み。チームレビュー・DB-01〜DB-09の残項目は未完了。
+// DB-04の5複合FKを反映。Order/Holdの対応・デモ決済禁止・不変条件のトリガーは未実装。
+// migrate / db pushは実行しない。CHECK制約・active hold部分一意indexは別途migrationで実装する。
 // 詳細はprisma/README.md。日時は呼出側で明示し、updatedAtも更新処理側で設定する。
 
 generator client {
@@ -81,40 +82,40 @@ enum RefundStatus {
 
 /// 店舗情報・受付設定・認証。表示列のNULL許容は暫定（DB-09）。
 model Store {
-  id String @id @default(cuid())
-  slug String @unique
+  id                 String    @id @default(cuid())
+  slug               String    @unique
   /// 店舗共通アカウントのログイン識別子
-  code String @unique
-  name String
+  code               String    @unique
+  name               String
   /// Ver1.0はAsia/Tokyo
-  timezone String
-  isActive Boolean @map("is_active")
+  timezone           String
+  isActive           Boolean   @map("is_active")
   /// 表示列の必須・任意はDB-09で確認
-  address String?
-  phone String?
-  businessHoursText String? @map("business_hours_text")
-  pickupInstructions String? @map("pickup_instructions")
-  contaminationNote String? @map("contamination_note")
+  address            String?
+  phone              String?
+  businessHoursText  String?   @map("business_hours_text")
+  pickupInstructions String?   @map("pickup_instructions")
+  contaminationNote  String?   @map("contamination_note")
   /// SQL CHECK（別途migrationで実装）: min_lead_days >= 0
-  minLeadDays Int @map("min_lead_days")
-  maxAdvanceDays Int @map("max_advance_days")
+  minLeadDays        Int       @map("min_lead_days")
+  maxAdvanceDays     Int       @map("max_advance_days")
   /// 3日・60日・17:00の仮設定はDEFAULTにしない
-  orderCutoffTime DateTime @map("order_cutoff_time") @db.Time(6)
+  orderCutoffTime    DateTime  @map("order_cutoff_time") @db.Time(6)
   /// bcrypt。未設定時はログイン拒否。公開不可
-  passwordHash String? @map("password_hash")
-  authVersion Int @default(1) @map("auth_version")
-  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz(6)
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  passwordHash       String?   @map("password_hash")
+  authVersion        Int       @default(1) @map("auth_version")
+  passwordChangedAt  DateTime? @map("password_changed_at") @db.Timestamptz(6)
+  createdAt          DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @map("updated_at") @db.Timestamptz(6)
 
-  storeSessions StoreSession[] @relation("StoreSession_storeId")
-  demoSessions DemoSession[] @relation("DemoSession_storeId")
-  parts Part[] @relation("Part_storeId")
-  designs Design[] @relation("Design_storeId")
-  orders Order[] @relation("Order_storeId")
+  storeSessions       StoreSession[]        @relation("StoreSession_storeId")
+  demoSessions        DemoSession[]         @relation("DemoSession_storeId")
+  parts               Part[]                @relation("Part_storeId")
+  designs             Design[]              @relation("Design_storeId")
+  orders              Order[]               @relation("Order_storeId")
   storeWeeklyCapacity StoreWeeklyCapacity[] @relation("StoreWeeklyCapacity_storeId")
-  dailyCapacity DailyCapacity[] @relation("DailyCapacity_storeId")
-  capacityHolds CapacityHold[] @relation("CapacityHold_storeId")
+  dailyCapacity       DailyCapacity[]       @relation("DailyCapacity_storeId")
+  capacityHolds       CapacityHold[]        @relation("CapacityHold_storeId")
 
   // SQL CHECK（別途migrationで実装） stores_lead_days_check: max_advance_days >= min_lead_days
   @@map("stores")
@@ -122,16 +123,15 @@ model Store {
 
 /// 店舗認証。生トークン・署名鍵は保存しない。店舗状態とauth_versionも毎回検証する。
 model StoreSession {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
-  tokenHash String @unique @map("token_hash")
-  authVersion Int @map("auth_version")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
-  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  id          String    @id @default(cuid())
+  storeId     String    @map("store_id")
+  tokenHash   String    @unique @map("token_hash")
+  authVersion Int       @map("auth_version")
+  createdAt   DateTime  @map("created_at") @db.Timestamptz(6)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("StoreSession_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  store Store @relation("StoreSession_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([storeId, revokedAt, expiresAt])
   @@map("store_sessions")
@@ -139,53 +139,71 @@ model StoreSession {
 
 /// 展示利用者のデモデータをまとめる。寿命と削除制約はDB-03・DB-09。
 model DemoSession {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
-  tokenHash String @unique @map("token_hash")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  id        String    @id @default(cuid())
+  storeId   String    @map("store_id")
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("DemoSession_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  store   Store    @relation("DemoSession_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   designs Design[] @relation("Design_demoSessionId")
-  orders Order[] @relation("Order_demoSessionId")
+  orders  Order[]  @relation("Order_demoSessionId")
 
+  @@unique([id, storeId])
   @@index([storeId, expiresAt])
   @@map("demo_sessions")
 }
 
+/// 通常利用者の編集権限。Cookieの32byte乱数をSHA-256で照合。認可済み編集で期限を7日後へ更新、閲覧では延長しない。デモはdemo_sessionsを使う。
+model DesignEditSession {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  designs Design[] @relation("Design_editSessionId")
+
+  @@index([expiresAt])
+  @@map("design_edit_sessions")
+}
+
 /// 登録済みパーツは常に利用可能。在庫・is_activeは設けない。参照中のkind変更拒否は更新処理で保証。
 model Part {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
-  name String
-  assetKey String @map("asset_key")
-  kind PartKind
+  id               String   @id @default(cuid())
+  storeId          String   @map("store_id")
+  name             String
+  assetKey         String   @map("asset_key")
+  kind             PartKind
+  /// 通常飾りは必須。上面投影を囲む円の実測半径m。外周デコは寸法仕様確定までNULL可
+  footprintRadiusM Float?   @map("footprint_radius_m") @db.DoublePrecision
   /// SQL CHECK（別途migrationで実装）: unit_price >= 0
-  unitPrice Int @map("unit_price")
-  sortOrder Int @map("sort_order")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  unitPrice        Int      @map("unit_price")
+  sortOrder        Int      @map("sort_order")
+  createdAt        DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("Part_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  store         Store          @relation("Part_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   partAllergens PartAllergen[] @relation("PartAllergen_partId")
-  placements Placement[] @relation("Placement_partId")
+  placements    Placement[]    @relation("Placement_partId")
 
+  @@unique([id, storeId])
   // SQL CHECK（別途migrationで実装） parts_border_price_check: kind <> 'border_decoration' OR unit_price = 20
+  // SQL CHECK（別途migrationで実装） parts_footprint_radius_check: footprint_radius_m IS NULL OR (footprint_radius_m > 0 AND footprint_radius_m < 'Infinity'::float8)
+  // SQL CHECK（別途migrationで実装） parts_standard_radius_check: kind <> 'standard' OR footprint_radius_m IS NOT NULL
   @@index([storeId, sortOrder])
   @@map("parts")
 }
 
 /// 企画書のcategoryは値・必要性未確定のため未収録（DB-05）。
 model Allergen {
-  id String @id @default(cuid())
-  code String @unique
-  name String
-  displayOrder Int @map("display_order")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  displayOrder Int      @map("display_order")
+  createdAt    DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @map("updated_at") @db.Timestamptz(6)
 
   partAllergens PartAllergen[] @relation("PartAllergen_allergenId")
 
@@ -194,75 +212,99 @@ model Allergen {
 
 /// パーツの原材料情報。土台・クリーム・メッセージプレートの情報源はDB-05。
 model PartAllergen {
-  partId String @map("part_id")
-  allergenId String @map("allergen_id")
+  partId       String       @map("part_id")
+  allergenId   String       @map("allergen_id")
   /// 企画書5-Aで定義済み。含む／同一設備を区別
   containsType ContainsType @map("contains_type")
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  part Part @relation("PartAllergen_partId", fields: [partId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  part     Part     @relation("PartAllergen_partId", fields: [partId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
   allergen Allergen @relation("PartAllergen_allergenId", fields: [allergenId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@id([partId, allergenId])
   @@map("part_allergens")
 }
 
-/// 注文前デザイン。共有・編集用識別子はDB-02の決定後に追加。pending作成と同時にロックし再注文は複製。message_plateは有無をbooleanで表現。
+/// 注文前デザイン。共有URLは閲覧のみ。pending作成と同時にロックし再注文は複製。所有・期限・ロック・version検証はAPI側で実装する。
 model Design {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
-  demoSessionId String? @map("demo_session_id")
+  id             String    @id @default(cuid())
+  storeId        String    @map("store_id")
+  demoSessionId  String?   @map("demo_session_id")
+  /// 通常Designは必須、デモではNULL。Cookie紛失時は編集権限を復旧しない
+  editSessionId  String?   @map("edit_session_id")
+  /// 閲覧用32byte乱数のSHA-256。停止でNULL、再発行で置換。編集権限には使わない
+  shareTokenHash String?   @unique @map("share_token_hash")
   /// #RRGGBB
-  spongeColor String @map("sponge_color") @db.VarChar(7)
+  spongeColor    String    @map("sponge_color") @db.VarChar(7)
   /// #RRGGBB
-  creamColor String @map("cream_color") @db.VarChar(7)
-  messageText String? @map("message_text")
-  messagePlate Boolean @map("message_plate")
-  version Int
-  lockedAt DateTime? @map("locked_at") @db.Timestamptz(6)
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  creamColor     String    @map("cream_color") @db.VarChar(7)
+  messageText    String?   @map("message_text")
+  messagePlate   Boolean   @map("message_plate")
+  version        Int
+  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("Design_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  demoSession DemoSession? @relation("Design_demoSessionId", fields: [demoSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  placements Placement[] @relation("Placement_designId")
+  store               Store                @relation("Design_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  demoSession         DemoSession?         @relation("Design_demoSessionId", fields: [demoSessionId, storeId], references: [id, storeId], onDelete: NoAction, onUpdate: NoAction)
+  editSession         DesignEditSession?   @relation("Design_editSessionId", fields: [editSessionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  placements          Placement[]          @relation("Placement_designId")
   designPaletteColors DesignPaletteColor[] @relation("DesignPaletteColor_designId")
-  orders Order? @relation("Order_designId")
-  capacityHolds CapacityHold[] @relation("CapacityHold_designId")
+  orders              Order?               @relation("Order_designId")
+  capacityHolds       CapacityHold[]       @relation("CapacityHold_designId")
 
+  @@unique([id, storeId])
+  // SQL CHECK（別途migrationで実装） designs_edit_owner_check: (demo_session_id IS NULL AND edit_session_id IS NOT NULL) OR (demo_session_id IS NOT NULL AND edit_session_id IS NULL)
+  @@index([editSessionId])
+  @@index([demoSessionId, storeId])
   @@map("designs")
 }
 
-/// 飾り1個1行。位置・回転・倍率はDB-01が未決のため列を保留。この表だけでは配置を復元できない。パレットへのFKは持たない。
+/// 飾り1個1行。通常飾りPoCは上面・実寸固定。seq_noは保存配列順1〜N、注文時に固定。端までの範囲判定はpartsの実測半径と照合。重なり・外周デコ制約は未決。パレットへのFKなし。
 model Placement {
-  id String @id @default(cuid())
-  designId String @map("design_id")
-  partId String @map("part_id")
-  seqNo Int @map("seq_no")
+  id        String   @id @default(cuid())
+  /// DesignとPartに共通する店舗。認可済みDesignから導出する。
+  storeId   String   @map("store_id")
+  designId  String   @map("design_id")
+  partId    String   @map("part_id")
+  seqNo     Int      @map("seq_no")
+  /// メートル。上面中心原点、3時が+X
+  posX      Float    @map("pos_x") @db.DoublePrecision
+  /// Y上向き。苺PoCでは0固定
+  posY      Float    @map("pos_y") @db.DoublePrecision
+  /// 12時が-Z、6時が+Z
+  posZ      Float    @map("pos_z") @db.DoublePrecision
+  /// Y軸回転のみ。ラジアン、0以上2π未満に正規化
+  rotY      Float    @map("rot_y") @db.DoublePrecision
+  /// 苺PoCでは1固定。上下移動・傾き・拡縮操作なし
+  scale     Float    @db.DoublePrecision
   /// 外周デコは白を含め必須、通常飾りはNULL。parts.kindとの照合が必要
-  color String? @db.VarChar(7)
+  color     String?  @db.VarChar(7)
   createdAt DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  design Design @relation("Placement_designId", fields: [designId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  part Part @relation("Placement_partId", fields: [partId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  design Design @relation("Placement_designId", fields: [designId, storeId], references: [id, storeId], onDelete: Cascade, onUpdate: NoAction)
+  part   Part   @relation("Placement_partId", fields: [partId, storeId], references: [id, storeId], onDelete: Restrict, onUpdate: NoAction)
 
   // SQL CHECK（別途migrationで実装） placements_color_check: color IS NULL OR color ~ '^#[0-9A-F]{6}$'
+  // SQL CHECK（別途migrationで実装） placements_seq_no_check: seq_no > 0
+  // SQL CHECK（別途migrationで実装） placements_position_finite_check: pos_x > '-Infinity'::float8 AND pos_x < 'Infinity'::float8 AND pos_y > '-Infinity'::float8 AND pos_y < 'Infinity'::float8 AND pos_z > '-Infinity'::float8 AND pos_z < 'Infinity'::float8
+  // SQL CHECK（別途migrationで実装） placements_rotation_check: rot_y >= 0 AND rot_y < 2 * pi()
+  // SQL CHECK（別途migrationで実装） placements_scale_check: scale > 0 AND scale < 'Infinity'::float8
   @@unique([designId, seqNo])
+  @@index([designId, storeId])
+  @@index([partId, storeId])
   @@map("placements")
 }
 
 /// 再利用色。所属店舗はdesigns経由。未使用色は課金対象外。更新には編集権限・ロック・version照合が必要。
 model DesignPaletteColor {
-  id String @id @default(cuid())
-  designId String @map("design_id")
-  color String @db.VarChar(7)
-  sortOrder Int @map("sort_order")
+  id        String   @id @default(cuid())
+  designId  String   @map("design_id")
+  color     String   @db.VarChar(7)
+  sortOrder Int      @map("sort_order")
   createdAt DateTime @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
 
@@ -275,79 +317,79 @@ model DesignPaletteColor {
 
 /// 1注文1台。通常はpending、デモはconfirmedで作成。所属店舗・デモsession一致と関連表へのデモ混入防止はDB-04。snapshotの厳密な構造はDB-08。
 model Order {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
+  id                  String      @id @default(cuid())
+  storeId             String      @map("store_id")
   /// 作成時必須。保持期限後のデザイン削除でNULL
-  designId String? @unique @map("design_id")
-  isDemo Boolean @map("is_demo")
-  demoSessionId String? @map("demo_session_id")
+  designId            String?     @unique @map("design_id")
+  isDemo              Boolean     @map("is_demo")
+  demoSessionId       String?     @map("demo_session_id")
   /// JSTの受取営業日
-  pickupDate DateTime @map("pickup_date") @db.Date
+  pickupDate          DateTime    @map("pickup_date") @db.Date
   /// 通常注文001〜999。表示時にMMDDと結合。上限到達時の処理はDB-09
-  pickupSequence Int? @map("pickup_sequence")
-  status OrderStatus
-  customerName String? @map("customer_name")
-  customerPhone String? @map("customer_phone")
-  customerEmail String? @map("customer_email")
-  accessTokenHash String? @unique @map("access_token_hash")
-  piiErasedAt DateTime? @map("pii_erased_at") @db.Timestamptz(6)
+  pickupSequence      Int?        @map("pickup_sequence")
+  status              OrderStatus
+  customerName        String?     @map("customer_name")
+  customerPhone       String?     @map("customer_phone")
+  customerEmail       String?     @map("customer_email")
+  accessTokenHash     String?     @unique @map("access_token_hash")
+  piiErasedAt         DateTime?   @map("pii_erased_at") @db.Timestamptz(6)
   /// SQL CHECK（別途migrationで実装）: subtotal >= 0
-  subtotal Int
+  subtotal            Int
   /// SQL CHECK（別途migrationで実装）: tax_rate_bps >= 0 AND tax_rate_bps <= 10000
-  taxRateBps Int @map("tax_rate_bps")
+  taxRateBps          Int         @map("tax_rate_bps")
   /// SQL CHECK（別途migrationで実装）: tax >= 0
-  tax Int
+  tax                 Int
   /// SQL CHECK（別途migrationで実装）: total >= 0
-  total Int
+  total               Int
   /// 表示用。座標は含めない。清掃時はメッセージ等を消去
-  designSnapshot Json @map("design_snapshot") @db.JsonB
+  designSnapshot      Json        @map("design_snapshot") @db.JsonB
   /// 注文確認時の品目・含有区分・店舗注記
-  allergenSnapshot Json @map("allergen_snapshot") @db.JsonB
-  allergenConfirmedAt DateTime? @map("allergen_confirmed_at") @db.Timestamptz(6)
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  allergenSnapshot    Json        @map("allergen_snapshot") @db.JsonB
+  allergenConfirmedAt DateTime?   @map("allergen_confirmed_at") @db.Timestamptz(6)
+  createdAt           DateTime    @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime    @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("Order_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  design Design? @relation("Order_designId", fields: [designId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  demoSession DemoSession? @relation("Order_demoSessionId", fields: [demoSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  orderItems OrderItem[] @relation("OrderItem_orderId")
+  store           Store            @relation("Order_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  design          Design?          @relation("Order_designId", fields: [designId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  demoSession     DemoSession?     @relation("Order_demoSessionId", fields: [demoSessionId, storeId], references: [id, storeId], onDelete: NoAction, onUpdate: NoAction)
+  orderItems      OrderItem[]      @relation("OrderItem_orderId")
   orderStatusLogs OrderStatusLog[] @relation("OrderStatusLog_orderId")
-  capacityHolds CapacityHold? @relation("CapacityHold_orderId")
-  payments Payment? @relation("Payment_orderId")
-  refunds Refund[] @relation("Refund_orderId")
+  capacityHolds   CapacityHold?    @relation("CapacityHold_orderId")
+  payments        Payment?         @relation("Payment_orderId")
+  refunds         Refund[]         @relation("Refund_orderId")
 
   // SQL CHECK（別途migrationで実装） orders_total_check: total = subtotal + tax
   // SQL CHECK（別途migrationで実装） orders_sequence_check: pickup_sequence IS NULL OR pickup_sequence BETWEEN 1 AND 999
   // SQL CHECK（別途migrationで実装） orders_demo_pii_check: (is_demo AND demo_session_id IS NOT NULL AND customer_name IS NULL AND customer_phone IS NULL AND customer_email IS NULL AND access_token_hash IS NULL AND pickup_sequence IS NULL AND allergen_confirmed_at IS NULL AND pii_erased_at IS NULL) OR (NOT is_demo AND demo_session_id IS NULL AND pickup_sequence IS NOT NULL AND allergen_confirmed_at IS NOT NULL AND ((pii_erased_at IS NULL AND customer_name IS NOT NULL AND customer_phone IS NOT NULL AND customer_email IS NOT NULL AND access_token_hash IS NOT NULL) OR (pii_erased_at IS NOT NULL AND customer_name IS NULL AND customer_phone IS NULL AND customer_email IS NULL AND access_token_hash IS NULL)))
   @@unique([storeId, pickupDate, pickupSequence])
   @@index([storeId, pickupDate, status])
+  @@index([demoSessionId, storeId])
   @@map("orders")
 }
 
 /// 配置明細は1個1行。placement_seq_noは清掃後も残す履歴番号なのでplacementsへのFKにしない。明細合計と注文小計はトランザクションで照合。
 model OrderItem {
-  id String @id @default(cuid())
-  orderId String @map("order_id")
+  id               String   @id @default(cuid())
+  orderId          String   @map("order_id")
   /// 役割は確定、全種別の保存文字列はDB-08。未確定enumを作らない
-  kind String
+  kind             String
   /// 配置明細は元のseq_no、本体・プレート・色料金はNULL
-  placementSeqNo Int? @map("placement_seq_no")
-  nameSnapshot String @map("name_snapshot")
+  placementSeqNo   Int?     @map("placement_seq_no")
+  nameSnapshot     String   @map("name_snapshot")
   /// 上書きしない版付きモデル参照
-  assetKeySnapshot String? @map("asset_key_snapshot")
-  colorSnapshot String? @map("color_snapshot") @db.VarChar(7)
+  assetKeySnapshot String?  @map("asset_key_snapshot")
+  colorSnapshot    String?  @map("color_snapshot") @db.VarChar(7)
   /// SQL CHECK（別途migrationで実装）: unit_price >= 0
-  unitPrice Int @map("unit_price")
+  unitPrice        Int      @map("unit_price")
   /// SQL CHECK（別途migrationで実装）: quantity > 0
-  quantity Int
+  quantity         Int
   /// SQL CHECK（別途migrationで実装）: line_total >= 0
-  lineTotal Int @map("line_total")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  lineTotal        Int      @map("line_total")
+  createdAt        DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
   order Order @relation("OrderItem_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   // SQL CHECK（別途migrationで実装） order_items_total_check: line_total = unit_price * quantity
@@ -358,18 +400,18 @@ model OrderItem {
 
 /// 状態変更履歴。店舗共通アカウントからスタッフ個人を識別したとは扱わない。自由文の清掃はDB-03。
 model OrderStatusLog {
-  id String @id @default(cuid())
-  orderId String @map("order_id")
+  id         String       @id @default(cuid())
+  orderId    String       @map("order_id")
   /// 作成時の初期履歴は遷移前状態なし
   fromStatus OrderStatus? @map("from_status")
-  toStatus OrderStatus @map("to_status")
+  toStatus   OrderStatus  @map("to_status")
   /// 保存値・actor_idの扱いはDB-08
-  actorType String @map("actor_type")
-  actorId String? @map("actor_id")
-  reason String?
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  actorType  String       @map("actor_type")
+  actorId    String?      @map("actor_id")
+  reason     String?
+  createdAt  DateTime     @map("created_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
   order Order @relation("OrderStatusLog_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("order_status_logs")
@@ -377,17 +419,16 @@ model OrderStatusLog {
 
 /// 曜日別の製造枠。初期5ポイントは設定値として投入する。
 model StoreWeeklyCapacity {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
+  id             String   @id @default(cuid())
+  storeId        String   @map("store_id")
   /// 曜日の番号割当はDB-09。勝手に0=日曜と決めない
-  weekday Int
+  weekday        Int
   /// SQL CHECK（別途migrationで実装）: capacity_points >= 0
-  capacityPoints Int @map("capacity_points")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  capacityPoints Int      @map("capacity_points")
+  createdAt      DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("StoreWeeklyCapacity_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  store Store @relation("StoreWeeklyCapacity_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([storeId, weekday])
   @@map("store_weekly_capacity")
@@ -395,17 +436,16 @@ model StoreWeeklyCapacity {
 
 /// 日別の枠上書きと店休日。日別行がない場合も店舗行ロックで枠処理を直列化する。
 model DailyCapacity {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
-  pickupDate DateTime @map("pickup_date") @db.Date
+  id             String   @id @default(cuid())
+  storeId        String   @map("store_id")
+  pickupDate     DateTime @map("pickup_date") @db.Date
   /// SQL CHECK（別途migrationで実装）: capacity_points >= 0
-  capacityPoints Int @map("capacity_points")
-  isClosed Boolean @map("is_closed")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  capacityPoints Int      @map("capacity_points")
+  isClosed       Boolean  @map("is_closed")
+  createdAt      DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("DailyCapacity_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  store Store @relation("DailyCapacity_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([storeId, pickupDate])
   @@map("daily_capacity")
@@ -413,77 +453,77 @@ model DailyCapacity {
 
 /// 別途migrationでUNIQUE(design_id) WHERE status = activeを追加。通常のUNIQUE(design_id)で代用しない。注文と同じ店舗・design・受取日はDB-04。
 model CapacityHold {
-  id String @id @default(cuid())
-  storeId String @map("store_id")
-  /// 期限後のNULL許容・削除動作はDB-03
-  designId String @map("design_id")
-  orderId String? @unique @map("order_id")
-  pickupDate DateTime @map("pickup_date") @db.Date
+  id         String     @id @default(cuid())
+  storeId    String     @map("store_id")
+  /// active中は必須。終端holdはDesign清掃でNULLになり、order_idで決済履歴を追跡する
+  designId   String?    @map("design_id")
+  orderId    String?    @unique @map("order_id")
+  pickupDate DateTime   @map("pickup_date") @db.Date
   /// 現行5号は1ポイント
   /// SQL CHECK（別途migrationで実装）: points > 0
-  points Int
-  status HoldStatus
+  points     Int
+  status     HoldStatus
   /// 仮確保開始から15分
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  expiresAt  DateTime   @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime   @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  store Store @relation("CapacityHold_storeId", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  design Design @relation("CapacityHold_designId", fields: [designId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  order Order? @relation("CapacityHold_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  store  Store   @relation("CapacityHold_storeId", fields: [storeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  design Design? @relation("CapacityHold_designId", fields: [designId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  order  Order?  @relation("CapacityHold_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  // SQL CHECK（別途migrationで実装） holds_active_design_check: status <> 'active' OR design_id IS NOT NULL
   @@index([storeId, pickupDate, status, expiresAt])
   @@map("capacity_holds")
 }
 
 /// 1注文1Intent。creatingから開始し不明結果でも別Intentを作らない。デモは禁止。返金はrefundsで管理。
 model Payment {
-  id String @id @default(cuid())
-  orderId String @unique @map("order_id")
-  provider String
-  paymentIntentId String? @unique @map("payment_intent_id")
-  creationIdempotencyKey String @unique @map("creation_idempotency_key")
-  status PaymentStatus
+  id                     String        @id @default(cuid())
+  orderId                String        @unique @map("order_id")
+  provider               String
+  paymentIntentId        String?       @unique @map("payment_intent_id")
+  creationIdempotencyKey String        @unique @map("creation_idempotency_key")
+  status                 PaymentStatus
   /// SQL CHECK（別途migrationで実装）: amount >= 0
-  amount Int
-  currency String
-  paidAt DateTime? @map("paid_at") @db.Timestamptz(6)
-  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz(6)
-  cancelCompletedAt DateTime? @map("cancel_completed_at") @db.Timestamptz(6)
-  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6)
-  lastError String? @map("last_error")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  amount                 Int
+  currency               String
+  paidAt                 DateTime?     @map("paid_at") @db.Timestamptz(6)
+  cancelRequestedAt      DateTime?     @map("cancel_requested_at") @db.Timestamptz(6)
+  cancelCompletedAt      DateTime?     @map("cancel_completed_at") @db.Timestamptz(6)
+  nextAttemptAt          DateTime?     @map("next_attempt_at") @db.Timestamptz(6)
+  lastError              String?       @map("last_error")
+  createdAt              DateTime      @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime      @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  order Order @relation("Payment_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  order   Order    @relation("Payment_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   refunds Refund[] @relation("Refund_paymentId")
 
+  @@unique([id, orderId])
   @@map("payments")
 }
 
 /// 受信の永続化と業務処理完了を区別。業務反映・processed更新を同一トランザクションで行う。
 model WebhookEvent {
-  id String @id @default(cuid())
-  provider String
-  eventId String @map("event_id")
-  eventType String @map("event_type")
-  objectId String @map("object_id")
-  eventCreatedAt DateTime @map("event_created_at") @db.Timestamptz(6)
+  id             String        @id @default(cuid())
+  provider       String
+  eventId        String        @map("event_id")
+  eventType      String        @map("event_type")
+  objectId       String        @map("object_id")
+  eventCreatedAt DateTime      @map("event_created_at") @db.Timestamptz(6)
   /// 検証済み復旧用最小データ。秘密値・カード・顧客個人情報を含めない
-  eventData Json @map("event_data") @db.JsonB
-  status WebhookStatus
-  payloadDigest String @map("payload_digest")
+  eventData      Json          @map("event_data") @db.JsonB
+  status         WebhookStatus
+  payloadDigest  String        @map("payload_digest")
   /// SQL CHECK（別途migrationで実装）: attempt_count >= 0
-  attemptCount Int @map("attempt_count")
-  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6)
-  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
-  errorMessage String? @map("error_message")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  attemptCount   Int           @map("attempt_count")
+  nextAttemptAt  DateTime?     @map("next_attempt_at") @db.Timestamptz(6)
+  processedAt    DateTime?     @map("processed_at") @db.Timestamptz(6)
+  errorMessage   String?       @map("error_message")
+  createdAt      DateTime      @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @map("updated_at") @db.Timestamptz(6)
 
   @@unique([provider, eventId])
   @@index([status, nextAttemptAt])
@@ -492,29 +532,31 @@ model WebhookEvent {
 
 /// 0円の申請も記録。処理中・結果不明の予定額も加味して過剰返金を防ぐ。paymentとorderの対応保証はDB-04。
 model Refund {
-  id String @id @default(cuid())
-  orderId String @map("order_id")
-  paymentId String @map("payment_id")
-  providerRefundId String? @unique @map("provider_refund_id")
-  idempotencyKey String @unique @map("idempotency_key")
-  reason String
+  id               String       @id @default(cuid())
+  orderId          String       @map("order_id")
+  paymentId        String       @map("payment_id")
+  providerRefundId String?      @unique @map("provider_refund_id")
+  idempotencyKey   String       @unique @map("idempotency_key")
+  reason           String
   /// SQL CHECK（別途migrationで実装）: rate_bps >= 0 AND rate_bps <= 10000
-  rateBps Int @map("rate_bps")
+  rateBps          Int          @map("rate_bps")
   /// SQL CHECK（別途migrationで実装）: amount >= 0
-  amount Int
-  status RefundStatus
+  amount           Int
+  status           RefundStatus
   /// SQL CHECK（別途migrationで実装）: attempt_count >= 0
-  attemptCount Int @map("attempt_count")
-  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6)
-  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
-  lastError String? @map("last_error")
-  createdAt DateTime @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+  attemptCount     Int          @map("attempt_count")
+  nextAttemptAt    DateTime?    @map("next_attempt_at") @db.Timestamptz(6)
+  leaseExpiresAt   DateTime?    @map("lease_expires_at") @db.Timestamptz(6)
+  lastError        String?      @map("last_error")
+  createdAt        DateTime     @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @map("updated_at") @db.Timestamptz(6)
 
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  order Order @relation("Refund_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // DB-03: NoActionは暫定。削除方針の合意後に見直す。
-  payment Payment @relation("Refund_paymentId", fields: [paymentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  order   Order   @relation("Refund_orderId", fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // DB-03: NoActionは暫定。残る削除方針をレビューする。
+  payment Payment @relation("Refund_paymentId", fields: [paymentId, orderId], references: [id, orderId], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([paymentId, orderId])
+  @@index([orderId])
   @@map("refunds")
 }

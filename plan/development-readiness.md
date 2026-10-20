@@ -59,6 +59,8 @@ mainはGit fetchで履歴だけ取得した。作業開始時のステージ済�
 
 ### D1: 配置の座標契約
 
+2026-10-19更新: 以下の案を本チャットで採用し、DBML・Prismaへ反映。苺PoCはposY=0・scale=1、seqNoは全置換保存の配列順1〜N。通常飾りの実測半径をparts.footprint_radius_mへ保持する。3D・SVGの実機照合、モデル寸法、重なり・外周デコ制約、4人レビューは残る。[詳細](../docs/db-decisions-proposal.md)。以下の不一致は更新前の記録。
+
 現状: 担当資料と#42はrotYのみ、DB資料・ER図はXYZ回転。
 
 提案: Ver0.5は `posX / posY / posZ / rotY / scale / seqNo` に統一する。単位はメートル、Yが上、上面中心を基準、5号直径0.15m、rotYはラジアン、scaleは倍率とする。真上から見た12時方向を-Z、3時方向を+Xとする案。
@@ -105,6 +107,8 @@ mainはGit fetchで履歴だけ取得した。作業開始時のステージ済�
 残作業: 注文内容の固定方式はD3で反映済み。参照中パーツの削除制約は削除方針の整理時に確定する。GitHub Issue #29の本文は今回更新していない。
 
 ### D5: デザインの共有と更新権限
+
+2026-10-19更新: 閲覧用shareToken（DBはSHA-256）と通常編集用design_edit_sessionsを分離する方式を本チャットで採用し、保存列を追加した。通常Designはedit_session_id、デモはdemo_session_idで認可する。共有停止・再発行・期限判定とCookie認証の実装・4人レビューは未完了。以下は採用前の記録。
 
 現状: IssueはshareId、DB資料はshare_token_hash。共有取得と更新の権限の区別が明示されていない。
 

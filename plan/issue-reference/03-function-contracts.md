@@ -61,6 +61,12 @@ export function aggregateRelevantAllergens(
 
 ## デザイン
 
+2026-10-19の採用方針: 通常編集はdesign_edit_sessionsのCookie認証とDesignのedit_session_id一致を必須とし、共有URLだけでは更新・注文開始を許可しない。デモは既存demo sessionを使う。以下の関数引数に秘密値を追加せず、サーバー側で認証済みコンテキストを解決してから操作する。まだ認可処理は実装されていない。
+
+PlacementInputはposX/posY/posZ/rotY/scale/seqNoを持つ。m単位、上面中心原点、Y上向き、12時-Z・3時+X。rotYはラジアン、0以上2π未満へ正規化し全数値の有限性を検証する。苺PoCはposY=0・scale=1、通常飾りの範囲は登録済み実測半径込みで確認する。保存配列のseqNoは1〜Nと一致させ、編集中は再採番可、注文後は固定する。
+
+getSharedDesignはshareTokenのSHA-256と共有有効状態・Design保持期限を照合する。公開DTOは表示項目だけを選択し、編集セッション・ハッシュ・顧客情報を含めない。共有停止はハッシュをNULL、再発行は置換し、古いURLを無効化する。
+
 ```ts
 export async function createDesign(input: CreateDesignInput): Promise<Result<Design>>;
 export async function savePlacements(

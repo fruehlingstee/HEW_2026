@@ -1,9 +1,9 @@
 # CakeCanvas テーブル・カラム一覧
 
 作成日: 2026-10-15  
-対象: [database.dbml](../database.dbml)に定義した18テーブル。各カラムをDBMLと同じ順序で記載する。
+更新日: 2026-10-19。対象: [database.dbml](../database.dbml)に定義した19テーブル。各カラムをDBMLと同じ順序で記載する。
 
-この資料は現在の部分設計を説明する辞書であり、実DBの作成済み一覧ではない。未決事項は[DB-01〜DB-09](../plan/open-questions.md#dbml作成で具体化した未決事項2026-10-15)で管理する。DBMLにない座標列・共有権限列・保留中のテーブルは、確定したものとして追加しない。
+この資料は現在の部分設計を説明する辞書であり、実DBの作成済み一覧ではない。未決事項は[DB-01〜DB-09](../plan/open-questions.md#dbml作成で具体化した未決事項2026-10-15)で管理する。座標・共有権限・主な削除動作は2026-10-19のチャット採用方針を反映した。4人合意・実DB適用は未完了。
 
 ## 読み方・共通用語
 
@@ -18,6 +18,7 @@
 | `NULL`可 | DB上で「値がない」状態を保存できる。業務上、入力を省略できるとは限らない |
 | `text` | 文字列。`varchar(7)`は最大7文字の文字列 |
 | `integer` | 整数。金額は小数を使わず円単位で保存する |
+| `float8` | PostgreSQLのdouble precision。座標・回転・倍率・半径に使用し、NaNとInfinityを拒否する |
 | `boolean` | 真偽値。`true`は該当する・有効、`false`は該当しない・無効 |
 | `timestamptz` | 時点を表す日時。UTCを基準に保存し、画面では必要に応じて日本時間へ変換する |
 | `date` / `time` | 日付のみ／時刻のみ。受取日はJSTの暦日として扱う |
@@ -44,6 +45,7 @@
 | [allergens](#allergens) | アレルゲン | 卵・乳などのアレルゲン1品目 |
 | [part_allergens](#part_allergens) | パーツのアレルゲン | 1種類のパーツと1品目のアレルゲンの関係 |
 | [designs](#designs) | デザイン | 作成中、または注文で固定されたケーキデザイン1件 |
+| [design_edit_sessions](#design_edit_sessions) | 通常編集セッション | 作成したブラウザーの編集権限 |
 | [placements](#placements) | 配置 | デザイン上に置いた飾り1個 |
 | [design_palette_colors](#design_palette_colors) | デザインのパレット色 | デザイン内で再利用するために登録した色1つ |
 | [orders](#orders) | 注文 | 5号ケーキ1台の購入申し込み、またはデモ注文1件 |
@@ -115,6 +117,20 @@
 
 IDを知っているだけでは認可しない。寿命・削除の詳細はDB-03・DB-09。
 
+## design_edit_sessions
+
+通常利用者の編集権限。デモは別のdemo_sessionsを使う。Cookie紛失・別ブラウザーへの権限引き継ぎは提供しない。
+
+| カラム | 名前の意味 | 型 | NULL | 保存する内容・役割 |
+|---|---|---|---|---|
+| `id` | 編集セッションID | text | 不可 | 主キー。Designから参照する |
+| `token_hash` | 秘密値のハッシュ | text | 不可 | Cookieの32byte乱数のSHA-256。一意、公開不可 |
+| `created_at` | 作成日時 | timestamptz | 不可 | セッション発行日時 |
+| `expires_at` | 失効期限 | timestamptz | 不可 | 認可済み編集で7日後へ更新。閲覧だけでは延長しない |
+| `revoked_at` | 失効日時 | timestamptz | 可 | 明示的に失効した時刻 |
+
+expires_atにindex。参照中DesignがあればRESTRICTで物理削除を防ぐ。期限・失効はAPI側でも検証する。
+
 ## parts
 
 飾りの種類を管理するマスタ。苺を3個置く場合、この表の苺は1行で、実際の3個は`placements`に3行作る。
@@ -126,6 +142,7 @@ IDを知っているだけでは認可しない。寿命・削除の詳細はDB-
 | `name` | パーツ名 | text | 不可 | 苺などの表示名 |
 | `asset_key` | 素材の識別キー | text | 不可 | 対応する3Dモデルなどを参照する識別子。モデル本体のデータではない |
 | `kind` | 種別 | part_kind | 不可 | 通常飾りか外周デコかを区別する |
+| `footprint_radius_m` | 上面投影を囲む円の半径 | float8 | 可 | 通常飾りでは必須・有限の正数。モデル担当がm単位で実測。外周デコは未決のためNULL可 |
 | `unit_price` | 1個あたりの単価 | integer | 不可 | 現在の税抜価格。0円以上。外周デコは20円。色追加料金は含めない |
 | `sort_order` | 並び順 | integer | 不可 | パーツ一覧などの表示順を指定する |
 | `created_at` | 作成日時 | timestamptz | 不可 | パーツの種類を登録した日時 |
@@ -169,6 +186,8 @@ IDを知っているだけでは認可しない。寿命・削除の詳細はDB-
 | `id` | デザインID | text | 不可 | デザインを識別する主キー |
 | `store_id` | 店舗ID | text | 不可 | 注文先となる`stores.id`を参照 |
 | `demo_session_id` | デモセッションID | text | 可 | デモ専用なら`demo_sessions.id`を参照。通常デザインはNULL |
+| `edit_session_id` | 編集セッションID | text | 可 | 通常Designは必須、デモはNULL。design_edit_sessionsを参照 |
+| `share_token_hash` | 閲覧トークンのハッシュ | text | 可 | 32byte乱数のSHA-256。一意。停止でNULL、再発行で置換。編集権限にはならない |
 | `sponge_color` | スポンジの色 | varchar(7) | 不可 | `#RRGGBB`形式のスポンジ色 |
 | `cream_color` | クリームの色 | varchar(7) | 不可 | `#RRGGBB`形式のクリーム色 |
 | `message_text` | メッセージ本文 | text | 可 | メッセージプレートに表示する文。未使用時はNULLを許容 |
@@ -178,7 +197,7 @@ IDを知っているだけでは認可しない。寿命・削除の詳細はDB-
 | `created_at` | 作成日時 | timestamptz | 不可 | デザインを最初に保存した日時 |
 | `updated_at` | 最終更新日時 | timestamptz | 不可 | デザインの最終更新日時。未注文デザインの保持期限の基準にも使う |
 
-通常注文は`pending`作成と同時にロックする。デモ注文でもスナップショット保存と同時にロックする。再注文・内容変更は複製して行う。共有・編集認証の列はDB-02で保留中。
+通常注文は`pending`作成と同時にロックする。デモ注文でもスナップショット保存と同時にロックする。再注文・内容変更は複製して行う。通常編集セッションとデモセッションのどちらか一方を必須とするCHECKをmigrationで追加する。認可処理はまだ未実装。
 
 ## placements
 
@@ -189,12 +208,17 @@ IDを知っているだけでは認可しない。寿命・削除の詳細はDB-
 | `id` | 配置ID | text | 不可 | 置いた飾り1個を識別する主キー |
 | `design_id` | デザインID | text | 不可 | 飾りを置いた`designs.id`を参照 |
 | `part_id` | パーツID | text | 不可 | 置いた飾りの種類として`parts.id`を参照 |
-| `seq_no` | sequence number、通し番号 | integer | 不可 | デザイン内の配置番号。指示書や注文明細との対応に使う。採番・再利用はDB-01 |
+| `seq_no` | sequence number、通し番号 | integer | 不可 | 全置換保存の配列順1〜N。編集中は再採番でき、注文時に固定する |
+| `pos_x` | 左右の位置 | float8 | 不可 | 上面中心からm単位。3時が正 |
+| `pos_y` | 高さ | float8 | 不可 | 上向きが正。苺PoCでは0固定 |
+| `pos_z` | 奥行きの位置 | float8 | 不可 | 12時が負、6時が正 |
+| `rot_y` | 水平回転 | float8 | 不可 | ラジアン。0以上2π未満。X/Z軸回転は持たない |
+| `scale` | 倍率 | float8 | 不可 | 有限の正数。苺PoCでは1固定 |
 | `color` | 配置の色 | varchar(7) | 可 | 外周デコは白を含め大文字`#RRGGBB`で必須。通常飾りはNULL |
 | `created_at` | 作成日時 | timestamptz | 不可 | この飾りを配置データとして追加した日時 |
 | `updated_at` | 最終更新日時 | timestamptz | 不可 | 配置データを最後に更新した日時 |
 
-`(design_id, seq_no)`は一意。色はパレットへの参照ではなく、色コードそのものを保存する。**位置・回転・倍率の列はDB-01で保留中のため、現状の列だけでは配置を復元できない。**
+`(design_id, seq_no)`は一意。色はパレットへの参照ではなく、色コードそのものを保存する。Design削除時はCASCADE、参照中Partの削除はRESTRICT。座標列は追加済みだが、保存・復元処理や範囲判定はまだ実装していない。
 
 ## design_palette_colors
 
@@ -319,7 +343,7 @@ IDを知っているだけでは認可しない。寿命・削除の詳細はDB-
 |---|---|---|---|---|
 | `id` | 仮確保ID | text | 不可 | 仮確保1件を識別する主キー |
 | `store_id` | 店舗ID | text | 不可 | 枠を確保する`stores.id`を参照 |
-| `design_id` | デザインID | text | 不可 | 仮確保の対象となる`designs.id`を参照。清掃時の削除制約はDB-03 |
+| `design_id` | デザインID | text | 可 | active中は必須。終端holdはDesign清掃時SET NULL。activeの非NULL条件をCHECKで保証する |
 | `order_id` | 注文ID | text | 可 | 注文作成後に`orders.id`を関連付ける。一意。注文作成前はNULL |
 | `pickup_date` | 受取日 | date | 不可 | 枠を確保するJSTの営業日 |
 | `points` | 仮確保ポイント数 | integer | 不可 | 確保する製造枠の量。正の整数。現行5号は1 |
@@ -448,8 +472,6 @@ IDを知っているだけでは認可しない。寿命・削除の詳細はDB-
 | `platform_fees` | 返金後に残る金額をもとに手数料を記録する | 現在値1行か計算履歴かが未決（DB-06） |
 | `rate_limits` | 操作回数・時間窓・制限状態を保存する | 時間窓方式と一意キーが未決（DB-07） |
 | `email_deliveries` | メール送信結果・再送・重複防止を管理する | 状態・再送・重複判定の契約が未決（DB-08） |
-| `placements`の位置・回転・倍率 | 飾りの配置を再現する | 座標契約が未決（DB-01） |
-| `designs`の共有・編集権限 | URLによる閲覧と編集の権限を分ける | 識別子・保存方式・期限等が未決（DB-02） |
 | `allergens.category`等 | アレルゲンの分類や商品全体の原材料管理 | 必要性・情報源・値が未決（DB-05） |
 
 ## 参照資料

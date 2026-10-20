@@ -6,11 +6,13 @@ PostgreSQL（Neon）と Prisma を使用する。金額は円単位の `Int`、D
 
 2026-10-15: 採用済み部分を[database.dbml](../../database.dbml)に整理した。dbdiagram.ioへ貼り付けるための部分設計であり、実DBへ適用する完成DDLではない。座標・共有権限等の未決項目、保留したテーブル、暫定的な型・NULL許容は[DB-01〜DB-09](../open-questions.md#dbml作成で具体化した未決事項2026-10-15)で追跡する。
 
-外周デコの保存形式、pending注文作成時の内容固定、予約枠と決済の競合処理は2026-09-28に本チャットで整理した構成に更新した。パーツの提供可否は現行仕様に合わせて削除済み。配置のXYZ回転、共有・編集権限は引き続き[開発着手レビュー](../development-readiness.md)の確認対象。未解決の項目を確定Prismaモデルへ変換しない。
+2026-10-19: [配置・編集権限・削除の3方針](../../docs/db-decisions-proposal.md)を本チャットで採用し、DBML・Prismaへ反映した。配置はY回転のみ、通常編集セッションと閲覧用共有トークンを分離する。4人レビューと実DB適用は未完了。外周デコの詳細・DB-04〜DB-09等の残項目は引き続き確認する。
 
 ## 共通方針
 
-- 店舗データは必ず `store_id` を持ち、検索条件にも含める。
+DB-04の具体化は[店舗・注文・決済の対応を守る設計案](../../docs/db-integrity-contract.md)を参照。現行の単列FKだけでは店舗・注文・デモの整合を保証しない。複合FKとNULL清掃を両立させる案をレビュー中であり、まだスキーマには反映していない。
+
+- 店舗データの操作は必ず所属店舗で制限する。直接store_idを持つ表と、親から所属を導出する表の範囲はDB-04で具体化する。現行スキーマでも全表がstore_idを持つわけではない。
 - 監査対象は `created_at`、`updated_at` を持つ。
 - pending注文作成時に名称・価格・税率・色・メッセージ・アレルゲンをスナップショット保存し、同時にデザインと配置をロックする。決済成功後にマスタから作り直さない。
 - 状態は Prisma enum、遷移可否はアプリケーション層でも検証する。
@@ -63,19 +65,33 @@ PostgreSQL（Neon）と Prisma を使用する。金額は円単位の `Int`、D
 ### parts / allergens / part_allergens
 
 - `parts`: `store_id`, `name`, `asset_key`, `kind`, `unit_price`, `sort_order`
+- `footprint_radius_m`: 通常飾りの上面投影を囲む円の実測半径（m、有限かつ正）。standardは必須、外周デコは寸法方針決定までNULL可。モデル担当が実測し、仮の半径でseedを作らない。
 - `kind`: `standard`（通常飾り）/ `border_decoration`（外周デコ）。種別はpartsだけに保持し、placementsには重複保存しない。参照中パーツの種別変更は拒否し、別種別は新しいパーツとして登録する。
 - 外周デコの`unit_price`は現行仕様の20円（税抜）。色追加料金はパーツ単価に含めず、デザイン全体で計算する。
 - `allergens`: `code`, `name`
 - `part_allergens`: `part_id`, `allergen_id` の複合主キー
 - Index: `parts(store_id, sort_order)`
 - 通常飾り・外周デコとも在庫数・提供可否は管理せず、登録済みパーツは常に利用可能とする。parts.is_activeは設けず、パーツ一覧や見積もりで提供可否による絞り込みを行わない。店舗の有効状態を表すstores.is_activeとは区別する。
-- 注文時の内容は以下のスナップショットとロック済み配置で維持する。参照中パーツの削除制約は削除方針の整理時に確定する。提供可否の削除を、参照中パーツの削除許可とは扱わない。
+- 注文時の内容は以下のスナップショットとロック済み配置で維持する。placementsから参照中のパーツ削除はRESTRICTとする。提供可否の削除を、参照中パーツの削除許可とは扱わない。
+
+### design_edit_sessions
+
+- 通常利用者の編集権限。`id`, 一意な`token_hash`, `created_at`, `expires_at`, nullableな`revoked_at`。expires_atにindex。
+- 32byte乱数をHttpOnly Cookieで保持し、DBにはSHA-256ハッシュのみ保存する。認可済み編集で寿命を7日後へ更新し、閲覧では延長しない。個々のDesignの保持期限も別途検証する。
+- 1セッションで複数Designを所有できる。別ブラウザーやCookie紛失時の権限復旧は提供しない。デモはdemo_sessionsを使い、このセッションを付けない。
+- 参照中Designが残る間のセッション削除はRESTRICT。期限・失効で先に認可を拒否し、Design清掃後に不要セッションを削除する。
+- CookieはHttpOnly・SameSite=Lax・Path=/・Domainなし、HTTPSでSecure。変更操作はOrigin検証を行う。実装は未完了。
 
 ### designs / placements / design_palette_colors
 
-- `designs`: `store_id`, nullableな`demo_session_id`, `sponge_color`, `cream_color`, `message_text`, `message_plate`, `version`, `locked_at`, `share_token_hash`
+- `designs`: `store_id`, nullableな`demo_session_id`, nullableな`edit_session_id`, `sponge_color`, `cream_color`, `message_text`, `message_plate`, `version`, `locked_at`, nullableかつ一意な`share_token_hash`
+- 通常Designはedit_session_id必須・demo_session_id=NULL、デモは逆とするCHECKを追加予定。所有セッションの期限・失効・店舗所属・Designの期限・locked_at・versionは操作ごとに検証する。
+- 共有は明示的に有効化し、32byte乱数の生shareTokenをURLへ、SHA-256ハッシュをDBへ保存する。共有停止でNULL、再発行で置換する。共有URLは閲覧のみで、編集・注文開始権限には使わない。公開DTOにセッション・ハッシュ・顧客情報を含めない。
 - demo_session_idがあるデザインはデモ専用とし、通常注文へ流用しない。所属店舗をdemo_sessionsと一致させる。未注文デモデザインもsession単位の清掃対象になる。
-- `placements`: `design_id`, `part_id`, `seq_no`, position XYZ、rotation XYZ、`scale`, nullableな`color`
+- `placements`: `design_id`, `part_id`, `seq_no`, `pos_x`, `pos_y`, `pos_z`, `rot_y`, `scale`, nullableな`color`
+- 座標はm、ケーキ上面中心原点、Y上向き・12時-Z・3時+X、5号直径0.15m。数値はdouble precision。Y回転のみラジアンで0以上2π未満へ正規化し、NaN/Infinityを拒否する。
+- 苺PoCではpos_y=0・scale=1、上下移動・傾き・拡縮のUIは設けない。通常飾りは`hypot(pos_x,pos_z)+footprint_radius_m <= 0.075`を検証する。外周デコや重なりの制約は引き続き保留。
+- 全置換保存の配列順にseq_noを1〜Nとし、入力もこの順との一致を確認する。編集中の削除・並べ替えで再採番できるが、注文作成時の番号は固定する。
 - 制約: `placements(design_id, seq_no)` 一意
 - 色は `#RRGGBB`。pending注文作成と同一トランザクションで`locked_at`を設定し、色・メッセージ・配置・パレットの更新を拒否する。
 - 通常飾りと外周デコは同じplacementsへ1個1行で保存する。`seq_no`は種別をまたいでデザイン内で一意。
@@ -130,6 +146,7 @@ PostgreSQL（Neon）と Prisma を使用する。金額は円単位の `Int`、D
 - Index: `capacity_holds(store_id, pickup_date, status, expires_at)`
 - 5号 = 1 point、既定 1日 5 points、hold は 15 分。
 - hold状態はactive / confirmed / expired / released。同一designのactive holdは1件までとする部分一意indexをmigration SQLで定義する。詳細は[競合処理](09-capacity-payment-concurrency.md)を参照。
+- capacity_holds.design_idはnullable、FKはSET NULL。activeでは非NULLをCHECKで必須にし、期限切れ等の終端holdはDesign清掃後もorder_idで決済を追跡する。
 
 ### payments / webhook_events
 
@@ -178,6 +195,10 @@ confirmed / in_production / ready
 5. Webhook受信を永続化してから応答し、再実行処理が業務反映とprocessed更新を同一トランザクションで行う。単にevent IDが存在することを完了扱いにしない。
 
 ## 保持期限
+
+2026-10-19: Design→PlacementはCASCADE、Design→Paletteも既存どおりCASCADE。Design→OrderとDesign→CapacityHoldはSET NULLとする。active holdを残したままのDesign削除は拒否する。Storeから各業務表への参照はRESTRICTとし、店舗停止はis_activeを使う。通常注文の財務履歴は自動連鎖削除しない。その他のFK・財務保持年数・自由文の清掃範囲はDB-03の残事項。
+
+通常清掃は店舗行→Design行の順にロックし、保持期限・注文有無・有効holdを再確認する。デモは既存のdemo sessionロック下で子から削除する。共有閲覧は清掃実行の遅れに関係なく期限切れを拒否する。
 
 - 未注文デザイン: 最終更新から 7 日後に削除。
 - 注文済みデザイン: 受取日 30 日後に配置・共有情報を削除。

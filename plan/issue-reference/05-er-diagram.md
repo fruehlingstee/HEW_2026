@@ -2,8 +2,15 @@
 
 列・制約の詳細は [04-database-design.md](./04-database-design.md) を参照する。
 
+2026-10-19: Y回転のみの座標、通常編集セッション・共有ハッシュ、Design清掃時のnullable参照を反映。platform_fees・email_deliveries・rate_limitsは引き続き設計候補であり、DBML・Prismaには未定義。
+
 ```mermaid
 erDiagram
+    stores ||--o{ store_sessions : authenticates
+    stores ||--o{ demo_sessions : hosts
+    design_edit_sessions o|--o{ designs : edits
+    demo_sessions o|--o{ designs : owns_demo
+    demo_sessions o|--o{ orders : owns_demo
     stores ||--o{ parts : owns
     stores ||--o{ designs : receives
     stores ||--o{ orders : receives
@@ -16,7 +23,8 @@ erDiagram
     designs ||--o{ placements : contains
     designs ||--o{ design_palette_colors : saves
     parts ||--o{ placements : placed_as
-    designs ||--o| orders : becomes
+    designs o|--o| orders : becomes
+    designs o|--o{ capacity_holds : reserves
 
     orders ||--|{ order_items : snapshots
     orders ||--o{ order_status_logs : changes
@@ -44,6 +52,7 @@ erDiagram
       string name
       string asset_key
       string kind
+      float footprint_radius_m "required for standard"
       int unit_price
     }
     allergens {
@@ -55,9 +64,19 @@ erDiagram
       string part_id PK,FK
       string allergen_id PK,FK
     }
+    design_edit_sessions {
+      string id PK
+      string token_hash UK
+      datetime created_at
+      datetime expires_at
+      datetime revoked_at "nullable"
+    }
     designs {
       string id PK
       string store_id FK
+      string demo_session_id FK "nullable; exclusive with edit_session_id"
+      string edit_session_id FK "nullable; required for non-demo"
+      string share_token_hash UK "nullable; read-only sharing"
       string sponge_color
       string cream_color
       string message_text
@@ -69,12 +88,10 @@ erDiagram
       string design_id FK
       string part_id FK
       int seq_no
-      float position_x
-      float position_y
-      float position_z
-      float rotation_x
-      float rotation_y
-      float rotation_z
+      float pos_x
+      float pos_y
+      float pos_z
+      float rot_y
       float scale
       string color "nullable; required for border_decoration"
     }
@@ -138,7 +155,7 @@ erDiagram
     capacity_holds {
       string id PK
       string store_id FK
-      string design_id FK
+      string design_id FK "nullable after cleanup; required while active"
       string order_id FK,UK
       date pickup_date
       int points
@@ -205,6 +222,8 @@ erDiagram
 ```
 
 ## データの流れ
+
+通常Designはedit_session_id、デモDesignはdemo_session_idのどちらか一方を持つ。閲覧用share_token_hashは編集権限と分離する。Design削除では配置・パレットをCASCADE、注文・終端holdからの参照をSET NULLにする。参照中パーツと店舗はRESTRICTで保護する。
 
 `parts.kind`は`standard` / `border_decoration`。配置には種別を重複保存しない。`design_palette_colors(design_id, color)`は複合一意。placements.colorは独立した色コードであり、パレットへの参照線は設けない。パレット編集・削除でも既存配置の色は変わらない。
 

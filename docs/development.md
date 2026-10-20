@@ -2,6 +2,8 @@
 
 ## 現在の到達点
 
+2026-10-19追記: Prisma 7.10.1とPostgreSQL接続パッケージを導入し、部分スキーマの検証・Client生成まで完了した。CIにも検証・生成を追加済み。DB接続・migration・seedは未実施。新規取得時は`npm ci`後に`npm run db:generate`を実行する。現行の詳細は[Prisma導入記録](../prisma/README.md)を参照。以下の9月時点の記録にあるPrisma未導入の記述はこの追記で更新する。
+
 Next.js・TypeScript・Tailwind CSSの最小画面、ESLint・Vitest・PostCSS設定、package.json・lockfile、CIを作成済み。DB・業務ロジック・3D・購入画面・店舗画面は未実装。
 
 [PR #86](https://github.com/fruehlingstee/HEW_2026/pull/86) は2026-09-16確認時点で未マージ。レビュー・統合と、Prisma導入を含む [#28](https://github.com/fruehlingstee/HEW_2026/issues/28) の完了を区別する。設計の確認案と作業依存関係は [開発着手レビュー](../plan/development-readiness.md) を参照する。
@@ -57,22 +59,24 @@ Vercel接続作業ではCLIの導入を推奨する（`npm i -g vercel`）。プ
 | npm start | next start |
 | npm run typecheck | next typegen && tsc --noEmit |
 | npm run lint | eslint . |
-| npm test | vitest run --passWithNoTests |
+| npm test | vitest run |
 | npm run test:watch | vitest |
+| npm run db:validate | Prismaスキーマ検証 |
+| npm run db:generate | Prisma Client生成 |
 
-テスト本体は未作成。`--passWithNoTests` による正常終了をテストの実施・成功件数に数えない。最初の業務ロジックのテスト追加時にこのオプションを削除する。
+2026-10-19、Prisma接続モジュールの6テストを追加し、`--passWithNoTests`を削除した。DB接続・業務ロジックの検証は未実施。Vitestは.envファイルを自動読み込みせず、テスト内で設定を差し替える。
 
 ## CIと検証
 
-[ci.yml](../.github/workflows/ci.yml) はmain向けPR、mainへのpush、手動実行で起動し、Node固定版 → npm ci → 型チェック → ESLint → Vitest → ビルドを実行する。
+[ci.yml](../.github/workflows/ci.yml) はmain向けPR、mainへのpush、手動実行で起動し、Node固定版 → npm ci → Prisma検証・Client生成 → 型チェック → ESLint → Vitest → ビルドを実行する。
 
 PR #86のコミット `95a3d2befaf89cd28f121ef33386452980c1e229` は [CI成功](https://github.com/fruehlingstee/HEW_2026/actions/runs/34552046180)。PR本文にはローカルの型チェック・lint・ビルド・画面確認の報告がある。後続変更は対象コミットごとに検証する。
 
 ## #28の残作業
 
 - [ ] 基盤PRのレビューと統合、依存関係の承認状況の確認。
-- [ ] Prismaのバージョン、generator、接続方式、必要なアダプターを確認し、追加差分を提示する。
-- [ ] 承認後にPrismaの最小構成を導入する。業務モデルは#29以降で扱う。
+- [x] Prismaのバージョン、generator、接続方式、必要なアダプターを確認し、追加差分を提示する。
+- [x] 承認後にPrismaの最小構成を導入する。2026-10-19、部分モデル・Client生成・サーバー接続モジュールまで作成。実DBは未接続。
 - [ ] #29が必要とするPrisma導入の開始条件を満たす。
 - [ ] 別メンバーがREADMEからインストール・起動を再現する。
 
