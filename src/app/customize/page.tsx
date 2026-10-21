@@ -2,6 +2,9 @@
 "use client";
 
 import { useRef, useState, type PointerEvent } from "react";
+import dynamic from "next/dynamic";
+
+import type { CakeType } from "@/components/Cake3DViewer";
 
 import {
   useCakeStore,
@@ -14,6 +17,19 @@ import {
   type DecorationType,
 } from "@/store/cakeStore";
 
+// 3Dコンポーネントはブラウザ側で読み込む
+const Cake3DViewer = dynamic(
+  () => import("@/components/Cake3DViewer"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[450px] items-center justify-center rounded-2xl bg-rose-50">
+        3Dモデルを読み込み中...
+      </div>
+    ),
+  }
+);
+
 // 購入フロー
 const steps = [
   "色選択",
@@ -22,31 +38,41 @@ const steps = [
   "見積・確認",
 ];
 
-// スポンジの色
+// 色の候補
 const spongeColors = [
   { name: "プレーン", value: "#F5D6A0" },
   { name: "ピンク", value: "#FFB6C1" },
   { name: "ブラウン", value: "#8B4513" },
 ];
 
-// クリームの色
 const creamColors = [
   { name: "ホワイト", value: "#FFFFFF" },
   { name: "ピンク", value: "#FFB6C1" },
   { name: "ブラウン", value: "#8B4513" },
 ];
 
+// 3Dモデルの候補
+const cakeModels: {
+  id: CakeType;
+  name: string;
+}[] = [
+  { id: "vanilla", name: "バニラ" },
+  { id: "chocolate", name: "チョコレート" },
+  { id: "cocoa", name: "ココア" },
+  { id: "matcha", name: "抹茶" },
+  { id: "strawberry", name: "ストロベリー" },
+];
+
 // 保存キー
 const STORAGE_KEY = "cakecanvas-design-v2";
 const OLD_STORAGE_KEY = "cakecanvas-design-v1";
 
-// 保存形式
+// 保存データ
 type SavedDesign = {
   version: 2;
   design: CakeDesign;
 };
 
-// 汎用オブジェクト判定
 function isRecord(
   value: unknown
 ): value is Record<string, unknown> {
@@ -57,15 +83,15 @@ function isRecord(
   );
 }
 
-// 色コードの判定
-function isHexColor(value: unknown): value is string {
+function isHexColor(
+  value: unknown
+): value is string {
   return (
     typeof value === "string" &&
     /^#[0-9A-Fa-f]{6}$/.test(value)
   );
 }
 
-// 飾りの種類を確認
 function isDecorationType(
   value: unknown
 ): value is DecorationType {
@@ -78,11 +104,10 @@ function isDecorationType(
   );
 }
 
-// メッセージに使える文字
+// メッセージの入力チェック
 const allowedMessage =
   /^[A-Za-z0-9０-９Ａ-Ｚａ-ｚぁ-ゖァ-ヶ一-龯々〆〤ー 　。、！？!?・（）()「」『』.,-]+$/u;
 
-// メッセージを検証
 function validateMessage(
   value: string
 ): string | null {
@@ -105,7 +130,7 @@ function validateMessage(
   return null;
 }
 
-// デザインデータの検証
+// 保存データの検証
 function isValidDesign(
   value: unknown
 ): value is CakeDesign {
@@ -125,13 +150,10 @@ function isValidDesign(
     return false;
   }
 
-  if (Array.from(value.message).length > 20) {
-    return false;
-  }
-
   if (
-    value.message !== "" &&
-    !allowedMessage.test(value.message)
+    Array.from(value.message).length > 20 ||
+    (value.message !== "" &&
+      !allowedMessage.test(value.message))
   ) {
     return false;
   }
@@ -176,7 +198,7 @@ function isValidDesign(
   });
 }
 
-// 以前の保存形式から移行する
+// 旧バージョンの保存データを読み込む
 function migrateOldDesign(
   value: unknown
 ): CakeDesign | null {
@@ -236,12 +258,11 @@ function migrateOldDesign(
   return isValidDesign(design) ? design : null;
 }
 
-// 金額を表示
 function formatPrice(price: number) {
   return price.toLocaleString("ja-JP") + "円";
 }
 
-// ケーキの俯瞰SVG
+// SVG上面図
 function CakePreview({
   editable,
   selectedId,
@@ -267,7 +288,6 @@ function CakePreview({
     (state) => state.moveDecoration
   );
 
-  // ドラッグ中の飾りID
   const draggingId = useRef<string | null>(null);
 
   function handlePointerMove(
@@ -276,7 +296,7 @@ function CakePreview({
     if (!editable) return;
 
     const id = draggingId.current;
-    if (id === null) return;
+    if (!id) return;
 
     const rect =
       event.currentTarget.getBoundingClientRect();
@@ -325,11 +345,13 @@ function CakePreview({
         fill={creamColor}
       />
 
-      {/* 飾りを描画 */}
+      {/* 飾り */}
       {decorations.map((decoration, index) => (
         <g
           key={decoration.id}
-          className={editable ? "cursor-grab" : ""}
+          className={
+            editable ? "cursor-grab" : ""
+          }
           onPointerDown={(event) => {
             if (!editable) return;
 
@@ -349,12 +371,14 @@ function CakePreview({
             r="14"
             fill="#DC4349"
             stroke={
-              selectedId === decoration.id && editable
+              editable &&
+              selectedId === decoration.id
                 ? "#EAB308"
                 : "#A92D35"
             }
             strokeWidth={
-              selectedId === decoration.id && editable
+              editable &&
+              selectedId === decoration.id
                 ? 4
                 : 2
             }
@@ -377,15 +401,25 @@ function CakePreview({
   );
 }
 
+// カスタマイズ画面
 export default function CustomizePage() {
-  // 現在の画面
+  // 現在のステップ
   const [step, setStep] = useState(0);
+
+  // SVGまたは3D
+  const [viewMode, setViewMode] = useState<
+    "svg" | "3d"
+  >("svg");
+
+  // 3D表示用のケーキ種類
+  const [cakeType, setCakeType] =
+    useState<CakeType>("vanilla");
 
   // 選択中の飾り
   const [selectedId, setSelectedId] =
     useState<string | null>(null);
 
-  // Zustandの状態
+  // Zustandのデータ
   const spongeColor = useCakeStore(
     (state) => state.spongeColor
   );
@@ -439,7 +473,7 @@ export default function CustomizePage() {
     (state) => state.restoreDesign
   );
 
-  // 飾りの料金
+  // 料金計算
   const decorationTotal = decorations.reduce(
     (total, decoration) =>
       total +
@@ -447,11 +481,9 @@ export default function CustomizePage() {
     0
   );
 
-  // メッセージ料金
   const messageTotal =
     hasMessagePlate ? MESSAGE_PRICE : 0;
 
-  // 合計金額
   const totalPrice =
     CAKE_PRICE +
     decorationTotal +
@@ -461,36 +493,34 @@ export default function CustomizePage() {
     ? validateMessage(message)
     : null;
 
-  // 飾りの数
   const decorationCount = decorations.length;
 
-  // 選択中の飾り
   const selectedDecoration = decorations.find(
     (decoration) => decoration.id === selectedId
   );
 
-  // 次へ
+  // 画面を進める
   function nextStep() {
     if (step === 2 && messageError) return;
 
     setStep((current) =>
-      Math.min(steps.length - 1, current + 1)
+      Math.min(3, current + 1)
     );
   }
 
-  // 戻る
+  // 画面を戻す
   function previousStep() {
     setStep((current) =>
       Math.max(0, current - 1)
     );
   }
 
-  // 苺を追加
+  // 苺の追加
   function addStrawberry() {
     addDecoration("strawberry");
   }
 
-  // 選択中の飾りを削除
+  // 飾りの削除
   function removeSelectedDecoration() {
     const target =
       selectedDecoration ??
@@ -502,7 +532,7 @@ export default function CustomizePage() {
     setSelectedId(null);
   }
 
-  // 選択中の飾りを右へ移動
+  // 飾りを右へ移動
   function moveSelectedRight() {
     const target =
       selectedDecoration ?? decorations[0];
@@ -515,7 +545,7 @@ export default function CustomizePage() {
     });
   }
 
-  // デザイン全体を保存
+  // デザインを保存
   function saveDesign() {
     if (messageError) {
       alert(messageError);
@@ -545,13 +575,13 @@ export default function CustomizePage() {
         JSON.stringify(savedData)
       );
 
-      alert("デザイン全体を保存しました！");
+      alert("デザインを保存しました！");
     } catch {
-      alert("デザインを保存できませんでした");
+      alert("保存できませんでした");
     }
   }
 
-  // 保存したデザインを読み込み
+  // デザインを読み込み
   function loadDesign() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -571,9 +601,9 @@ export default function CustomizePage() {
           throw new Error("保存データが不正です");
         }
       } else {
-        // 以前の形式からも読み込み可能
-        const oldSaved =
-          localStorage.getItem(OLD_STORAGE_KEY);
+        const oldSaved = localStorage.getItem(
+          OLD_STORAGE_KEY
+        );
 
         if (oldSaved) {
           const parsed: unknown =
@@ -584,7 +614,7 @@ export default function CustomizePage() {
       }
 
       if (!design) {
-        alert("読み込めるデザインがありません");
+        alert("保存データがありません");
         return;
       }
 
@@ -593,11 +623,11 @@ export default function CustomizePage() {
 
       alert("デザインを読み込みました！");
     } catch {
-      alert("デザインを読み込めませんでした");
+      alert("読み込みに失敗しました");
     }
   }
 
-  // 共通のケーキプレビュー
+  // SVG表示
   function preview(editable: boolean) {
     return (
       <CakePreview
@@ -610,7 +640,7 @@ export default function CustomizePage() {
 
   return (
     <main className="min-h-screen bg-rose-50 p-6 text-slate-900">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-4xl">
         {/* タイトル */}
         <h1 className="text-3xl font-bold text-rose-700">
           CakeCanvas
@@ -620,7 +650,7 @@ export default function CustomizePage() {
           ケーキを、あなたらしく。
         </p>
 
-        {/* 保存と読み込み */}
+        {/* 保存・復元 */}
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             type="button"
@@ -640,11 +670,11 @@ export default function CustomizePage() {
         </div>
 
         <p className="mt-2 text-xs text-slate-500">
-          ※ブラウザ内での保存です。
-          DBへの保存はまだ行いません。
+          ※現在はブラウザ内への保存です。
+          DBへの保存は未実装です。
         </p>
 
-        {/* 進捗 */}
+        {/* ステップ表示 */}
         <div className="mt-8 grid grid-cols-4 gap-2">
           {steps.map((name, index) => (
             <div
@@ -731,21 +761,116 @@ export default function CustomizePage() {
         {step === 1 && (
           <section className="mt-8 rounded-xl bg-white p-6">
             <h2 className="text-2xl font-bold">
-              ② 飾り付け
+              ② ケーキの飾り付け
             </h2>
 
             <p className="mt-2 text-slate-600">
-              苺を追加して、ドラッグで配置してください。
+              SVG上面図で飾りを配置できます。
+              3Dではケーキの土台を確認できます。
             </p>
 
-            {preview(true)}
+            {/* SVG / 3D切り替え */}
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setViewMode("svg")}
+                aria-pressed={viewMode === "svg"}
+                className={`rounded-lg border px-6 py-3 ${
+                  viewMode === "svg"
+                    ? "border-rose-700 bg-rose-600 text-white"
+                    : "border-rose-200 bg-white"
+                }`}
+              >
+                SVG上面図
+              </button>
 
-            <p className="text-center font-bold">
+              <button
+                type="button"
+                onClick={() => setViewMode("3d")}
+                aria-pressed={viewMode === "3d"}
+                className={`rounded-lg border px-6 py-3 ${
+                  viewMode === "3d"
+                    ? "border-rose-700 bg-rose-600 text-white"
+                    : "border-rose-200 bg-white"
+                }`}
+              >
+                3Dプレビュー
+              </button>
+            </div>
+
+            {/* SVG表示 */}
+            {viewMode === "svg" && (
+              <div className="mt-6 rounded-xl bg-rose-50 p-4">
+                <h3 className="text-center font-bold">
+                  SVG上面図
+                </h3>
+
+                {preview(true)}
+
+                <p className="text-center text-sm text-slate-600">
+                  飾りをドラッグして移動できます。
+                </p>
+              </div>
+            )}
+
+            {/* 3D表示 */}
+            {viewMode === "3d" && (
+              <div className="mt-6">
+                <h3 className="text-center font-bold">
+                  3Dケーキプレビュー
+                </h3>
+
+                {/* 5種類のモデル選択 */}
+                <div className="my-5 flex flex-wrap justify-center gap-2">
+                  {cakeModels.map((cake) => (
+                    <button
+                      key={cake.id}
+                      type="button"
+                      onClick={() =>
+                        setCakeType(cake.id)
+                      }
+                      aria-pressed={
+                        cakeType === cake.id
+                      }
+                      className={`rounded-lg border px-4 py-2 ${
+                        cakeType === cake.id
+                          ? "border-rose-700 bg-rose-600 text-white"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      {cake.name}
+                    </button>
+                  ))}
+                </div>
+
+                <Cake3DViewer type={cakeType} />
+
+                <p className="mt-4 text-center text-sm text-slate-600">
+                  ドラッグで回転、ホイールで拡大・縮小できます。
+                </p>
+
+                <p className="mt-2 text-center text-sm text-amber-700">
+                  ※3Dは土台モデルの表示検証です。
+                  SVGで選択した色や苺の位置は、
+                  まだ3Dには反映されません。
+                </p>
+
+                <p className="mt-2 text-center text-xs text-slate-500">
+                  3Dモデルの種類は現在の保存対象外です。
+                </p>
+              </div>
+            )}
+
+            {/* 飾りの操作 */}
+            <h3 className="mt-8 text-center text-xl font-bold">
+              飾りの管理
+            </h3>
+
+            <p className="mt-3 text-center">
               飾りの数：
               {decorationCount}/{MAX_DECORATIONS}個
             </p>
 
-            {/* 飾りを追加・削除 */}
             <div className="mt-5 flex flex-wrap justify-center gap-3">
               <button
                 type="button"
@@ -768,12 +893,6 @@ export default function CustomizePage() {
               </button>
             </div>
 
-            <p className="mt-3 text-center text-sm text-slate-500">
-              削除したい飾りをクリックして選択できます。
-              未選択の場合は最後の飾りを削除します。
-            </p>
-
-            {/* 座標の移動 */}
             <button
               type="button"
               onClick={moveSelectedRight}
@@ -782,6 +901,12 @@ export default function CustomizePage() {
             >
               選択した飾りを右へ移動
             </button>
+
+            <p className="mt-3 text-center text-sm text-slate-500">
+              SVG上面図で飾りを選択できます。
+              未選択の場合、削除は最後の飾り、
+              移動は最初の飾りが対象です。
+            </p>
 
             {/* 座標一覧 */}
             <h3 className="mt-8 text-center text-xl font-bold">
@@ -845,10 +970,6 @@ export default function CustomizePage() {
             <p className="mt-6 text-center font-bold">
               飾りの小計：
               {formatPrice(decorationTotal)}
-            </p>
-
-            <p className="mt-3 text-center text-sm text-slate-500">
-              ※現時点で追加できる飾りは苺のみです。
             </p>
           </section>
         )}
@@ -916,11 +1037,6 @@ export default function CustomizePage() {
                     {messageError}
                   </p>
                 )}
-
-                <p className="mt-3 text-sm text-slate-500">
-                  改行・絵文字・機種依存文字は
-                  使用できません。
-                </p>
               </div>
             )}
 
@@ -940,12 +1056,11 @@ export default function CustomizePage() {
             </h2>
 
             <p className="mt-2 text-slate-600">
-              カスタマイズ内容を確認してください。
+              カスタマイズした内容を確認してください。
             </p>
 
             {preview(false)}
 
-            {/* 選択内容 */}
             <div className="space-y-3">
               <p>
                 スポンジ：
@@ -972,14 +1087,12 @@ export default function CustomizePage() {
               <p>
                 メッセージ：
                 <strong>
-                  {hasMessagePlate
-                    ? message
-                    : "なし"}
+                  {hasMessagePlate ? message : "なし"}
                 </strong>
               </p>
             </div>
 
-            {/* 見積もり */}
+            {/* 価格 */}
             <h3 className="mt-8 text-xl font-bold">
               お見積もり
             </h3>
@@ -1013,7 +1126,7 @@ export default function CustomizePage() {
                 </span>
               </div>
 
-              <hr className="border-slate-200" />
+              <hr />
 
               <div className="flex justify-between text-xl font-bold">
                 <span>合計（税抜）</span>
@@ -1026,7 +1139,7 @@ export default function CustomizePage() {
 
             <p className="mt-6 text-sm text-slate-500">
               ※開発用の仮価格です。
-              注文・決済はまだ行われません。
+              注文や決済はまだ行われません。
             </p>
           </section>
         )}
