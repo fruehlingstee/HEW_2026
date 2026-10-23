@@ -1,5 +1,7 @@
 # Issue 参照マップ
 
+> **2026-10-20変更:** ケーキの作成・編集と注文手続き（受取日選択・注文確認・決済）はPC専用とする。注文受付後の購入者向け画面（受付完了・注文内容／受取番号／状態の照会・キャンセル申請・返金状況確認）はPC・スマホに対応する。注文確定後のデザイン編集は不可。店舗管理・共有デザイン画面は引き続きPC専用で、共有URL表示・コピー・PC画像保存を維持する。3D編集のスマホ対応・タッチ配置操作は対象外とし、10月30日の3D判定と性能目標はPCで維持する。注文受付後の画面はスマホ向けUI・タップ操作とiPhone Safari／Android Chromeでの確認を実装・検証対象に含める。2026-10-13の全面PC専用方針はこの範囲で改訂し、それ以前のモバイル対応記述は履歴として扱う。
+
 各 Issue に着手するときは、まず [README.md](./README.md) の優先順位を確認し、この表から必要な設計資料へ進む。Issue 本文と設計資料が食い違う場合は `plan/status.md` を優先し、判断結果を Issue に記録する。
 
 略記:
@@ -55,7 +57,7 @@
 | #48 ORDER-03 guest / snapshot | FN, DB, BL, UI | ゲスト注文と全snapshot |
 | #49 ORDER-04 pickup / access / rate | FN, DB, BL | 受取連番、token hash、制限 |
 | #50 PAY-01 Stripe / webhook | FN, DB, BL | PaymentIntent、署名・冪等Webhook |
-| #51 PAY-02 complete / email | FN, BL, UI | 完了画面と受付メール |
+| #51 PAY-02 complete / email | FN, BL, UI | PC・スマホ対応の完了画面と受付メール |
 
 ## Phase 4: 店舗管理
 
@@ -71,13 +73,13 @@
 
 | Issue | 参照 | 完了時の成果物 |
 |---|---|---|
-| #57 LOOKUP-01 access link | FN, BL, UI | 安全なゲスト照会 |
+| #57 LOOKUP-01 access link | FN, BL, UI | PC・スマホから安全なゲスト照会・キャンセル申請・返金状況確認 |
 | #58 REFUND-01 decision engine | FN, BL | 返金判定と境界値テスト |
 | #59 REFUND-02 Stripe / fees | FN, DB, BL | 冪等返金と手数料再計算 |
 | #60 NOTIFY-01 emails | FN, DB, BL | テンプレート、履歴、再送 |
 | #61 PRIVACY-01 cleanup | FN, DB, BL | 匿名化・期限削除処理 |
 | #62 DEMO-01 demo / reset | BL, UI | 決済・PII・本番枠なしのデモ |
-| #63 SHARE-01 QR / image | FN, BL, UI | 個人情報なし共有、QR、画像保存 |
+| #63 SHARE-01 URL / image | FN, BL, UI | 個人情報なし共有、URLコピー、PC画像保存 |
 
 ## Phase 6: テスト・品質
 
@@ -85,8 +87,8 @@
 |---|---|---|
 | #64 TEST-01 unit | FN, BL, TS | 価格・税・日付・状態・返金テスト |
 | #65 TEST-02 concurrency / integration | FN, DB, BL | hold・採番・Webhook競合テスト |
-| #66 QA-01 E2E | UI, BL | 購入・決済・店舗処理のE2E |
-| #67 QA-02 performance / a11y / security | TS, UI, BL | 3D性能、a11y、tenant/token検証 |
+| #66 QA-01 E2E | UI, BL | 購入・決済・店舗処理のE2E、スマホで注文後の照会・キャンセル申請 |
+| #67 QA-02 performance / a11y / security | TS, UI, BL | PCの3D性能、注文後画面のスマホ操作・表示、a11y、tenant/token検証 |
 | #68 RC-01 freeze | 全資料 | 2027-01-31凍結、残件分類、RC |
 
 ## Phase 7: 任意機能・展示
