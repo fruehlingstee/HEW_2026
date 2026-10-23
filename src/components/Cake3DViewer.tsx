@@ -3,10 +3,10 @@
 
 import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
+
 import {
   Bounds,
   Center,
-  Html,
   OrbitControls,
   useGLTF,
 } from "@react-three/drei";
@@ -44,13 +44,13 @@ function CakeModel({
     (state) => state.decorations
   );
 
-  // 読み込んだモデルの複製
+  // 読み込んだモデルを複製
   const model = useMemo(
     () => scene.clone(true),
     [scene]
   );
 
-  // 3Dモデルの大きさと中心を調べる
+  // 3Dモデルの大きさと位置を調べる
   const dimensions = useMemo(() => {
     const box = new Box3().setFromObject(model);
 
@@ -60,16 +60,16 @@ function CakeModel({
     box.getSize(size);
     box.getCenter(center);
 
-    // ケーキの半径（モデルから推定）
+    // ケーキの半径
     const cakeRadius = Math.max(
       Math.min(size.x, size.z) / 2,
       0.01
     );
 
-    // 苺を置ける範囲
+    // 苺を配置できる半径
     const placementRadius = cakeRadius * 0.68;
 
-    // 仮の苺の大きさ
+    // 仮の苺のサイズ
     const strawberryRadius = cakeRadius * 0.13;
 
     return {
@@ -81,7 +81,7 @@ function CakeModel({
     };
   }, [model]);
 
-  // 現在は苺だけを3Dで表示
+  // 現在は苺だけを3Dに反映
   const strawberries = decorations.filter(
     (decoration) =>
       decoration.type === "strawberry"
@@ -89,26 +89,25 @@ function CakeModel({
 
   return (
     <group>
-      {/* ケーキの3Dモデル */}
+      {/* ケーキの土台 */}
       <primitive object={model} />
 
-      {/* SVGの苺を3D座標に変換して表示 */}
+      {/* 苺の3D表示 */}
       {strawberries.map((strawberry) => {
-        // SVGのX座標を3DのX座標へ
+        // SVG座標を3D座標に変換
         const x =
           dimensions.centerX +
           ((strawberry.x - SVG_CENTER) /
             SVG_PLACEMENT_RADIUS) *
             dimensions.placementRadius;
 
-        // SVGのY座標を3DのZ座標へ
         const z =
           dimensions.centerZ +
           ((strawberry.y - SVG_CENTER) /
             SVG_PLACEMENT_RADIUS) *
             dimensions.placementRadius;
 
-        // ケーキの上面に置く
+        // ケーキ上面の高さ
         const y =
           dimensions.topY +
           dimensions.strawberryRadius * 0.55;
@@ -118,7 +117,6 @@ function CakeModel({
             key={strawberry.id}
             position={[x, y, z]}
           >
-            {/* 仮の苺：赤い球 */}
             <sphereGeometry
               args={[
                 dimensions.strawberryRadius,
@@ -171,16 +169,9 @@ export default function Cake3DViewer({
           intensity={1}
         />
 
-        {/* ケーキと苺 */}
-        <Suspense
-          fallback={
-            <Html center>
-              <div className="whitespace-nowrap rounded-lg bg-white px-4 py-2 text-sm text-slate-700 shadow">
-                3Dモデルを読み込み中...
-              </div>
-            </Html>
-          }
-        >
+        {/* 3Dモデルの読み込み */}
+        {/* Htmlを使わず、安全なfallbackに変更 */}
+        <Suspense fallback={null}>
           <Bounds
             key={type}
             fit
