@@ -44,7 +44,7 @@ npm run build
 
 CIは [.github/workflows/ci.yml](.github/workflows/ci.yml) で定義し、main向けPR・mainへのpush・手動実行に対応しています。[PR #86のCI](https://github.com/fruehlingstee/HEW_2026/actions/runs/34552046180) は成功済みです。これは当該コミットの結果であり、後続変更の成功を保証するものではありません。
 
-テスト本体は未作成です。`npm test` は `--passWithNoTests` によりテスト0件でも正常終了します。最初の業務ロジックのテスト追加時にこのオプションを外します。
+業務ロジックのテストは `src/domain` にあります（Vitest）。`npm test` は、テストが0件のときは失敗します。
 
 ## ファイル構成
 
@@ -52,6 +52,7 @@ CIは [.github/workflows/ci.yml](.github/workflows/ci.yml) で定義し、main�
 plan/                         企画、最新決定、担当分担、設計案
 docs/development.md           開発手順と基盤の残作業
 src/app/                      最小画面、共通レイアウト、CSS
+src/domain/                   デザインの型、入力チェック、料金計算（純粋関数とテスト）
 package.json                  開発コマンドと依存関係
 package-lock.json             npm ci用の固定依存関係
 memo/                         既存の参考画像
