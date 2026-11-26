@@ -10,6 +10,7 @@ export default defineConfig([
     "out/**",
     "build/**",
     "coverage/**",
+    "public/draco/**",
     "next-env.d.ts",
   ]),
 ]);
