@@ -1,4 +1,4 @@
-// 11/27 に合意した決まりと、各機能の保存データの読み込みを、デザインの型（model）で確かめる。
+// 11/26 に合意した決まりと、各機能の保存データの読み込みを、デザインの型（model）で確かめる。
 // prototype の cake-sizes・toppings・extra-toppings・borders・fillings のテストのうち、model だけで確かめられる部分を集めた。
 import { describe, expect, it } from "vitest";
 import { MAX_FRUIT, changeCakeSize, constrainPoint, emptyDesign, parseDesign, quote, type Decoration } from "./model";
@@ -6,7 +6,7 @@ import { TOPPINGS, TOPPING_KINDS, isAccent, type ToppingKind } from "./toppings"
 
 const item = (kind: ToppingKind, id = 1, color: string = TOPPINGS[kind].color): Decoration => ({ id, kind, color, x: 0, y: 0, rotation: 0 });
 
-describe("ケーキのサイズと本体価格（11/27 合意）", () => {
+describe("ケーキのサイズと本体価格（11/26 合意）", () => {
   it("5号は税込2,700円、6号は税込3,240円（本体2,500円・3,000円に税8%）", () => {
     expect(quote([], false, [], null, 5).total).toBe(2700);
     expect(quote([], false, [], null, 6).total).toBe(3240);
@@ -26,7 +26,7 @@ describe("ケーキのサイズと本体価格（11/27 合意）", () => {
   });
 });
 
-describe("飾りの上限（11/27 合意：種類別 20・32・10）", () => {
+describe("飾りの上限（11/26 合意：種類別 20・32・10）", () => {
   it("フルーツなど20個・絞りクリーム32個・お祝いの飾り10個は、別々の枠として一緒に置ける", () => {
     expect(MAX_FRUIT).toBe(20);
     const fruit = Array.from({ length: 20 }, (_, i) => item("peach", i + 1));
@@ -54,7 +54,7 @@ describe("飾りの読み込みと料金", () => {
   it("飾りの大きさの分だけ、縁より内側に収める", () => {
     expect(Math.hypot(...Object.values(constrainPoint(400, 300, "mint")))).toBeCloseTo(110);
   });
-  it("お祝いの飾りの色は無料で、白以外の絞りクリームだけ1色50円（11/27 合意）", () => {
+  it("お祝いの飾りの色は無料で、白以外の絞りクリームだけ1色50円（11/26 合意）", () => {
     for (const kind of TOPPING_KINDS.filter(isAccent)) {
       expect(quote([item(kind, 1, "#123456")], false)).toEqual(quote([item(kind)], false));
     }
