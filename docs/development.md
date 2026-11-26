@@ -36,7 +36,7 @@ Vercel接続作業ではCLIの導入を推奨する（`npm i -g vercel`）。プ
 
 ## ディレクトリ方針
 
-[共通の構成](../plan/issue-reference/02-file-structure.md) を優先する。現時点の実装は `src/app/page.tsx`、`layout.tsx`、`globals.css` のみ。
+[共通の構成](../plan/issue-reference/02-file-structure.md) を優先する。現時点の実装は `src/app/page.tsx`、`layout.tsx`、`globals.css` と、`src/domain` のデザインの型・料金計算。
 
 - `src/app`: URL、ページの組み立て、Route Handler。
 - `src/features`: customization、editor-3d、overview-svgなどの画面機能。
@@ -57,10 +57,10 @@ Vercel接続作業ではCLIの導入を推奨する（`npm i -g vercel`）。プ
 | npm start | next start |
 | npm run typecheck | next typegen && tsc --noEmit |
 | npm run lint | eslint . |
-| npm test | vitest run --passWithNoTests |
+| npm test | vitest run |
 | npm run test:watch | vitest |
 
-テスト本体は未作成。`--passWithNoTests` による正常終了をテストの実施・成功件数に数えない。最初の業務ロジックのテスト追加時にこのオプションを削除する。
+テストは `src/**/*.test.ts` に置く（Vitest・Node環境）。業務ロジックのテストは `src/domain` にある。テストが0件のときは失敗する。
 
 ## CIと検証
 
