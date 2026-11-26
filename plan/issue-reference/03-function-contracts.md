@@ -1,5 +1,7 @@
 # 使用関数定義・契約
 
+> **2026-10-27企画改訂の参照先:** 会員・公開ギャラリー・コピー機能と注文スナップショットの方針は[../kikaku.md](../kikaku.md)、[../status.md](../status.md)、[改訂メモ](../db-v4-project-revision.md)を参照する。本資料の旧認証・デザインロック・列名・画面／Issue契約は詳細同期前であり、そのまま最新の実装仕様としない。変更のない価格等の規則は継続し、差異とDB不足項目を改訂メモで確認する。
+
 Issue 実装時に共有する TypeScript の境界。配置は [02-file-structure.md](./02-file-structure.md)、ルールは [06-business-logic.md](./06-business-logic.md) を参照する。
 
 ## 実装前の確認

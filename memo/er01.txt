@@ -1,0 +1,408 @@
+// CakeCanvas: 採用済み仕様のDBML（2026-10-15）。実DB作成用の完成DDLではない。
+// 根拠: plan/status.md / plan/issue-reference/04-database-design.md / plan/kikaku.md
+// DBML仕様: https://dbml.dbdiagram.io/docs/
+// 未決事項 DB-01〜DB-09: plan/open-questions.md。未決の列・制約を補完して適用しない。
+// IDはアプリ側でCUIDを生成する。SQL関数cuid()や自動連番は定義しない。
+// text / jsonb はPostgreSQLでの表現。updated_atは更新処理側で更新する。
+// FKの削除動作は明記済み2件だけ指定。それ以外の省略は削除方針の合意を意味しない（DB-03）。
+
+Project CakeCanvas {
+  database_type: 'PostgreSQL'
+  Note: '採用済み部分の設計図。座標・権限・テナント整合・清掃制約等は未完成。migrationとして直接適用しない。金額は円整数、日時はUTC、受取日はJSTの暦日。'
+}
+
+Enum part_kind {
+  standard
+  border_decoration
+}
+
+Enum contains_type {
+  contains
+  may_contain
+}
+
+Enum order_status {
+  pending
+  confirmed
+  in_production
+  ready
+  completed
+  cancelled
+  rejected
+  expired
+}
+
+Enum hold_status {
+  active
+  confirmed
+  expired
+  released
+}
+
+Enum payment_status {
+  creating
+  pending
+  failed
+  succeeded
+  cancelled
+  needs_review
+}
+
+Enum webhook_status {
+  received
+  processed
+  ignored
+  failed
+  needs_review
+}
+
+Enum refund_status {
+  queued
+  processing
+  succeeded
+  failed
+  needs_review
+}
+
+Table stores {
+  id text [pk, not null]
+  slug text [not null, unique]
+  code text [not null, unique, note: '店舗共通アカウントのログイン識別子']
+  name text [not null]
+  timezone text [not null, note: 'Ver1.0はAsia/Tokyo']
+  is_active boolean [not null]
+  address text [note: '表示列の必須・任意はDB-09で確認']
+  phone text
+  business_hours_text text
+  pickup_instructions text
+  contamination_note text
+  min_lead_days integer [not null, check: `min_lead_days >= 0`]
+  max_advance_days integer [not null]
+  order_cutoff_time time [not null, note: '3日・60日・17:00の仮設定はDEFAULTにしない']
+  password_hash text [null, note: 'bcrypt。未設定時はログイン拒否。公開不可']
+  auth_version integer [not null, default: 1]
+  password_changed_at timestamptz [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  checks {
+    `max_advance_days >= min_lead_days` [name: 'stores_lead_days_check']
+  }
+  Note: '店舗情報・受付設定・認証。表示列のNULL許容は暫定（DB-09）。'
+}
+
+Table store_sessions {
+  id text [pk, not null]
+  store_id text [not null]
+  token_hash text [not null, unique]
+  auth_version integer [not null]
+  created_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz [null]
+  indexes {
+    (store_id, revoked_at, expires_at)
+  }
+  Note: '店舗認証。生トークン・署名鍵は保存しない。店舗状態とauth_versionも毎回検証する。'
+}
+
+Table demo_sessions {
+  id text [pk, not null]
+  store_id text [not null]
+  token_hash text [not null, unique]
+  created_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz [null]
+  indexes {
+    (store_id, expires_at)
+  }
+  Note: '展示利用者のデモデータをまとめる。寿命と削除制約はDB-03・DB-09。'
+}
+
+Table parts {
+  id text [pk, not null]
+  store_id text [not null]
+  name text [not null]
+  asset_key text [not null]
+  kind part_kind [not null]
+  unit_price integer [not null, check: `unit_price >= 0`]
+  sort_order integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, sort_order)
+  }
+  checks {
+    `kind <> 'border_decoration' OR unit_price = 20` [name: 'parts_border_price_check']
+  }
+  Note: '登録済みパーツは常に利用可能。在庫・is_activeは設けない。参照中のkind変更拒否は更新処理で保証。'
+}
+
+Table allergens {
+  id text [pk, not null]
+  code text [not null, unique]
+  name text [not null]
+  display_order integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '企画書のcategoryは値・必要性未確定のため未収録（DB-05）。'
+}
+
+Table part_allergens {
+  part_id text [not null]
+  allergen_id text [not null]
+  contains_type contains_type [not null, note: '企画書5-Aで定義済み。含む／同一設備を区別']
+  indexes {
+    (part_id, allergen_id) [pk]
+  }
+  Note: 'パーツの原材料情報。土台・クリーム・メッセージプレートの情報源はDB-05。'
+}
+
+Table designs {
+  id text [pk, not null]
+  store_id text [not null]
+  demo_session_id text [null]
+  sponge_color varchar(7) [not null, note: '#RRGGBB']
+  cream_color varchar(7) [not null, note: '#RRGGBB']
+  message_text text [null]
+  message_plate boolean [not null]
+  version integer [not null]
+  locked_at timestamptz [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '注文前デザイン。共有・編集用識別子はDB-02の決定後に追加。pending作成と同時にロックし再注文は複製。message_plateは有無をbooleanで表現。'
+}
+
+Table placements {
+  id text [pk, not null]
+  design_id text [not null]
+  part_id text [not null]
+  seq_no integer [not null]
+  color varchar(7) [null, note: '外周デコは白を含め必須、通常飾りはNULL。parts.kindとの照合が必要']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (design_id, seq_no) [unique]
+  }
+  checks {
+    `color IS NULL OR color ~ '^#[0-9A-F]{6}$'` [name: 'placements_color_check']
+  }
+  Note: '飾り1個1行。位置・回転・倍率はDB-01が未決のため列を保留。この表だけでは配置を復元できない。パレットへのFKは持たない。'
+}
+
+Table design_palette_colors {
+  id text [pk, not null]
+  design_id text [not null]
+  color varchar(7) [not null]
+  sort_order integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (design_id, color) [unique]
+  }
+  checks {
+    `color ~ '^#[0-9A-F]{6}$'` [name: 'palette_color_check']
+  }
+  Note: '再利用色。所属店舗はdesigns経由。未使用色は課金対象外。更新には編集権限・ロック・version照合が必要。'
+}
+
+Table orders {
+  id text [pk, not null]
+  store_id text [not null]
+  design_id text [null, unique, note: '作成時必須。保持期限後のデザイン削除でNULL']
+  is_demo boolean [not null]
+  demo_session_id text [null]
+  pickup_date date [not null, note: 'JSTの受取営業日']
+  pickup_sequence integer [null, note: '通常注文001〜999。表示時にMMDDと結合。上限到達時の処理はDB-09']
+  status order_status [not null]
+  customer_name text [null]
+  customer_phone text [null]
+  customer_email text [null]
+  access_token_hash text [null, unique]
+  pii_erased_at timestamptz [null]
+  subtotal integer [not null, check: `subtotal >= 0`]
+  tax_rate_bps integer [not null, check: `tax_rate_bps >= 0 AND tax_rate_bps <= 10000`]
+  tax integer [not null, check: `tax >= 0`]
+  total integer [not null, check: `total >= 0`]
+  design_snapshot jsonb [not null, note: '表示用。座標は含めない。清掃時はメッセージ等を消去']
+  allergen_snapshot jsonb [not null, note: '注文確認時の品目・含有区分・店舗注記']
+  allergen_confirmed_at timestamptz [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, pickup_date, pickup_sequence) [unique]
+    (store_id, pickup_date, status)
+  }
+  checks {
+    `total = subtotal + tax` [name: 'orders_total_check']
+    `pickup_sequence IS NULL OR pickup_sequence BETWEEN 1 AND 999` [name: 'orders_sequence_check']
+    `(is_demo AND demo_session_id IS NOT NULL AND customer_name IS NULL AND customer_phone IS NULL AND customer_email IS NULL AND access_token_hash IS NULL AND pickup_sequence IS NULL AND allergen_confirmed_at IS NULL AND pii_erased_at IS NULL) OR (NOT is_demo AND demo_session_id IS NULL AND pickup_sequence IS NOT NULL AND allergen_confirmed_at IS NOT NULL AND ((pii_erased_at IS NULL AND customer_name IS NOT NULL AND customer_phone IS NOT NULL AND customer_email IS NOT NULL AND access_token_hash IS NOT NULL) OR (pii_erased_at IS NOT NULL AND customer_name IS NULL AND customer_phone IS NULL AND customer_email IS NULL AND access_token_hash IS NULL)))` [name: 'orders_demo_pii_check']
+  }
+  Note: '1注文1台。通常はpending、デモはconfirmedで作成。所属店舗・デモsession一致と関連表へのデモ混入防止はDB-04。snapshotの厳密な構造はDB-08。'
+}
+
+Table order_items {
+  id text [pk, not null]
+  order_id text [not null]
+  kind text [not null, note: '役割は確定、全種別の保存文字列はDB-08。未確定enumを作らない']
+  placement_seq_no integer [null, note: '配置明細は元のseq_no、本体・プレート・色料金はNULL']
+  name_snapshot text [not null]
+  asset_key_snapshot text [null, note: '上書きしない版付きモデル参照']
+  color_snapshot varchar(7) [null]
+  unit_price integer [not null, check: `unit_price >= 0`]
+  quantity integer [not null, check: `quantity > 0`]
+  line_total integer [not null, check: `line_total >= 0`]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (order_id, placement_seq_no) [unique]
+  }
+  checks {
+    `line_total = unit_price * quantity` [name: 'order_items_total_check']
+    `placement_seq_no IS NULL OR quantity = 1` [name: 'order_items_placement_quantity_check']
+  }
+  Note: '配置明細は1個1行。placement_seq_noは清掃後も残す履歴番号なのでplacementsへのFKにしない。明細合計と注文小計はトランザクションで照合。'
+}
+
+Table order_status_logs {
+  id text [pk, not null]
+  order_id text [not null]
+  from_status order_status [null, note: '作成時の初期履歴は遷移前状態なし']
+  to_status order_status [not null]
+  actor_type text [not null, note: '保存値・actor_idの扱いはDB-08']
+  actor_id text [null]
+  reason text [null]
+  created_at timestamptz [not null]
+  Note: '状態変更履歴。店舗共通アカウントからスタッフ個人を識別したとは扱わない。自由文の清掃はDB-03。'
+}
+
+Table store_weekly_capacity {
+  id text [pk, not null]
+  store_id text [not null]
+  weekday integer [not null, note: '曜日の番号割当はDB-09。勝手に0=日曜と決めない']
+  capacity_points integer [not null, check: `capacity_points >= 0`]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, weekday) [unique]
+  }
+  Note: '曜日別の製造枠。初期5ポイントは設定値として投入する。'
+}
+
+Table daily_capacity {
+  id text [pk, not null]
+  store_id text [not null]
+  pickup_date date [not null]
+  capacity_points integer [not null, check: `capacity_points >= 0`]
+  is_closed boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, pickup_date) [unique]
+  }
+  Note: '日別の枠上書きと店休日。日別行がない場合も店舗行ロックで枠処理を直列化する。'
+}
+
+Table capacity_holds {
+  id text [pk, not null]
+  store_id text [not null]
+  design_id text [not null, note: '期限後のNULL許容・削除動作はDB-03']
+  order_id text [null, unique]
+  pickup_date date [not null]
+  points integer [not null, check: `points > 0`, note: '現行5号は1ポイント']
+  status hold_status [not null]
+  expires_at timestamptz [not null, note: '仮確保開始から15分']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, pickup_date, status, expires_at)
+  }
+  Note: '別途migrationでUNIQUE(design_id) WHERE status = activeを追加。通常のUNIQUE(design_id)で代用しない。注文と同じ店舗・design・受取日はDB-04。'
+}
+
+Table payments {
+  id text [pk, not null]
+  order_id text [not null, unique]
+  provider text [not null]
+  payment_intent_id text [null, unique]
+  creation_idempotency_key text [not null, unique]
+  status payment_status [not null]
+  amount integer [not null, check: `amount >= 0`]
+  currency text [not null]
+  paid_at timestamptz [null]
+  cancel_requested_at timestamptz [null]
+  cancel_completed_at timestamptz [null]
+  next_attempt_at timestamptz [null]
+  last_error text [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '1注文1Intent。creatingから開始し不明結果でも別Intentを作らない。デモは禁止。返金はrefundsで管理。'
+}
+
+Table webhook_events {
+  id text [pk, not null]
+  provider text [not null]
+  event_id text [not null]
+  event_type text [not null]
+  object_id text [not null]
+  event_created_at timestamptz [not null]
+  event_data jsonb [not null, note: '検証済み復旧用最小データ。秘密値・カード・顧客個人情報を含めない']
+  status webhook_status [not null]
+  payload_digest text [not null]
+  attempt_count integer [not null, check: `attempt_count >= 0`]
+  next_attempt_at timestamptz [null]
+  processed_at timestamptz [null]
+  error_message text [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (provider, event_id) [unique]
+    (status, next_attempt_at)
+  }
+  Note: '受信の永続化と業務処理完了を区別。業務反映・processed更新を同一トランザクションで行う。'
+}
+
+Table refunds {
+  id text [pk, not null]
+  order_id text [not null]
+  payment_id text [not null]
+  provider_refund_id text [null, unique]
+  idempotency_key text [not null, unique]
+  reason text [not null]
+  rate_bps integer [not null, check: `rate_bps >= 0 AND rate_bps <= 10000`]
+  amount integer [not null, check: `amount >= 0`]
+  status refund_status [not null]
+  attempt_count integer [not null, check: `attempt_count >= 0`]
+  next_attempt_at timestamptz [null]
+  lease_expires_at timestamptz [null]
+  last_error text [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '0円の申請も記録。処理中・結果不明の予定額も加味して過剰返金を防ぐ。paymentとorderの対応保証はDB-04。'
+}
+
+Ref: store_sessions.store_id > stores.id
+Ref: demo_sessions.store_id > stores.id
+Ref: parts.store_id > stores.id
+Ref: part_allergens.part_id > parts.id
+Ref: part_allergens.allergen_id > allergens.id
+Ref: designs.store_id > stores.id
+Ref: designs.demo_session_id > demo_sessions.id
+Ref: placements.design_id > designs.id
+Ref: placements.part_id > parts.id
+Ref: design_palette_colors.design_id > designs.id [delete: cascade]
+Ref: orders.store_id > stores.id
+Ref: designs.id - orders.design_id [delete: set null]
+Ref: orders.demo_session_id > demo_sessions.id
+Ref: order_items.order_id > orders.id
+Ref: order_status_logs.order_id > orders.id
+Ref: store_weekly_capacity.store_id > stores.id
+Ref: daily_capacity.store_id > stores.id
+Ref: capacity_holds.store_id > stores.id
+Ref: capacity_holds.design_id > designs.id
+Ref: orders.id - capacity_holds.order_id
+Ref: orders.id - payments.order_id
+Ref: refunds.order_id > orders.id
+Ref: refunds.payment_id > payments.id
+
+// platform_fees: 現在値1行か履歴複数行かが未決。DB-06の決定後に追加。
+// rate_limits: 時間窓方式と一意キーが未決。DB-07の決定後に追加。
+// email_deliveries: 状態・再送・重複排除の契約をDB-08で確定後に追加。

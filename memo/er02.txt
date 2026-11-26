@@ -1,0 +1,472 @@
+Project CakeCanvas_v4 {
+  database_type: 'PostgreSQL'
+  Note: '会員登録・v2改善案・公開デザイン複製を統合。設計提案。2026-10-27。'
+}
+
+Enum account_status {
+  pending_verification
+  active
+  suspended
+  withdrawn
+}
+
+Enum auth_token_purpose {
+  verify_email
+  reset_password
+}
+
+Enum store_role {
+  owner
+  manager
+  staff
+}
+
+Enum publication_status {
+  published
+  hidden
+  removed
+}
+
+Enum order_status {
+  pending
+  confirmed
+  in_production
+  ready
+  completed
+  cancelled
+  rejected
+  expired
+}
+
+// 01  会員・認証・店舗
+Table users {
+  id varchar [pk, not null]
+  email varchar [null, note: '登録メール。退会匿名化時のみNULL']
+  email_key varchar [unique, null, note: 'サーバーで正規化。利用中会員の重複登録を防止']
+  email_verified_at timestamptz [null]
+  status account_status [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  withdrawn_at timestamptz [null]
+  Note: '会員アカウント・本人確認状態'
+}
+
+Table user_profiles {
+  user_id varchar [pk, not null]
+  nickname varchar [not null]
+  full_name varchar [null, note: '注文用氏名。公開APIに含めない']
+  phone varchar [null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '会員プロフィール・既定の連絡先'
+}
+
+Table password_credentials {
+  user_id varchar [pk, not null]
+  password_hash varchar [not null]
+  password_changed_at timestamptz [not null]
+  created_at timestamptz [not null]
+  Note: 'パスワードのハッシュだけを保存'
+}
+
+Table auth_sessions {
+  id varchar [pk, not null]
+  user_id varchar [not null]
+  token_hash varchar [unique, not null]
+  created_at timestamptz [not null]
+  last_seen_at timestamptz [null]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz [null]
+  indexes {
+    (user_id, expires_at)
+  }
+  Note: 'ログイン端末・失効管理'
+}
+
+Table auth_action_tokens {
+  id varchar [pk, not null]
+  user_id varchar [not null]
+  purpose auth_token_purpose [not null]
+  token_hash varchar [unique, not null]
+  email_key_snapshot varchar [not null]
+  created_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  consumed_at timestamptz [null]
+  indexes {
+    (user_id, purpose, expires_at)
+  }
+  Note: 'メール確認・パスワード再設定'
+}
+
+Table user_consents {
+  id varchar [pk, not null]
+  user_id varchar [not null]
+  document_type varchar [not null]
+  document_version varchar [not null]
+  accepted_at timestamptz [not null]
+  indexes {
+    (user_id, document_type, document_version) [unique]
+  }
+  Note: '規約等への同意・文書バージョン'
+}
+
+Table stores {
+  id varchar [pk, not null]
+  slug varchar [unique, not null]
+  name varchar [not null]
+  timezone varchar [not null]
+  is_active boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '店舗'
+}
+
+Table store_memberships {
+  store_id varchar [not null]
+  user_id varchar [not null]
+  role store_role [not null]
+  is_active boolean [not null]
+  joined_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, user_id) [pk]
+  }
+  Note: '所属・店舗権限'
+}
+
+// 02  商品・編集・公開ギャラリー
+Table designs {
+  id varchar [pk, not null]
+  forked_from_publication_id varchar [null, note: '複製元の公開デザイン。削除されても自分の構成は保持']
+  store_id varchar [not null]
+  user_id varchar [null]
+  sponge_color varchar [not null]
+  cream_color varchar [not null]
+  message_text varchar [null]
+  version integer [not null]
+  share_token_hash varchar [unique, null]
+  updated_at timestamptz [not null]
+  demo_session_id varchar [null, note: '任意機能を採用する場合のみ']
+  created_at timestamptz [not null]
+  Note: '繰り返し編集できるデザイン'
+}
+
+Table design_publications {
+  id varchar [pk, not null]
+  store_id varchar [not null]
+  source_design_id varchar [null, note: '作者の元デザインへの参照。公開内容の復元には使用しない']
+  author_user_id varchar [null]
+  author_alias varchar [not null, note: '公開用表示名。注文者氏名とは分離']
+  title varchar [not null]
+  description text [null]
+  status publication_status [not null, default: 'published']
+  allow_remix boolean [not null, default: true]
+  schema_version integer [not null]
+  configuration jsonb [not null, note: '公開時点の色・飾り・配置・資産バージョンを固定保存。個人情報を除去した公開専用データ']
+  published_at timestamptz [not null]
+  hidden_at timestamptz [null]
+  indexes {
+    (store_id, status, published_at)
+  }
+  Note: 'ギャラリー公開版。構成は不変。変更版は新規IDで公開。公開と複製はサーバーで権限確認する。'
+}
+
+Table placements {
+  id varchar [pk, not null]
+  design_id varchar [not null]
+  part_id varchar [not null]
+  seq_no integer [not null]
+  position_x "double precision" [not null]
+  position_y "double precision" [not null]
+  position_z "double precision" [not null]
+  rotation_x "double precision" [not null]
+  rotation_y "double precision" [not null]
+  rotation_z "double precision" [not null]
+  scale "double precision" [not null]
+  color varchar [null]
+  indexes {
+    (design_id, seq_no) [unique]
+  }
+  Note: '飾り1個ごとの配置'
+}
+
+Table parts {
+  id varchar [pk, not null]
+  store_id varchar [not null]
+  kind varchar [not null]
+  name varchar [not null]
+  unit_price_excl_tax integer [not null]
+  asset_key varchar [not null]
+  asset_version varchar [not null]
+  is_active boolean [not null]
+  Note: '商品・飾りマスタ'
+}
+
+Table allergens {
+  id varchar [pk, not null]
+  code varchar [unique, not null]
+  name varchar [not null]
+  Note: 'アレルゲン分類'
+}
+
+Table part_allergens {
+  part_id varchar [not null]
+  allergen_id varchar [not null]
+  indexes {
+    (part_id, allergen_id) [pk]
+  }
+  Note: 'パーツとアレルゲン'
+}
+
+Table design_likes {
+  publication_id varchar [not null]
+  user_id varchar [not null]
+  created_at timestamptz [not null]
+  indexes {
+    (publication_id, user_id) [pk]
+    (publication_id, created_at)
+    (user_id, created_at)
+  }
+  Note: 'お気に入り。1ユーザー1公開デザイン1件。人気順はこの記録を集計。'
+}
+
+// 03  注文・価格・確定スナップショット
+Table orders {
+  id varchar [pk, not null]
+  store_id varchar [not null]
+  user_id varchar [null]
+  source_design_id varchar [null]
+  status order_status [not null]
+  pickup_date date [not null]
+  pickup_sequence integer [null]
+  subtotal_excl_tax integer [not null]
+  tax_rate_bps integer [not null]
+  tax_amount integer [not null]
+  total_amount integer [not null]
+  is_demo boolean [not null]
+  idempotency_key varchar [unique, not null]
+  allergen_confirmed_at timestamptz [null]
+  created_at timestamptz [not null]
+  demo_session_id varchar [null, note: '任意機能を採用する場合のみ']
+  updated_at timestamptz [not null]
+  indexes {
+    (store_id, pickup_date, pickup_sequence) [unique]
+  }
+  Note: '会員／ゲスト注文・1注文1ケーキ'
+}
+
+Table order_design_snapshots {
+  order_id varchar [pk, not null]
+  schema_version integer [not null]
+  configuration jsonb [not null]
+  allergen_snapshot jsonb [not null]
+  captured_at timestamptz [not null]
+  Note: '注文時に固定 / 更新不可'
+}
+
+Table order_contacts {
+  order_id varchar [pk, not null]
+  name varchar [not null]
+  email varchar [not null]
+  phone varchar [not null]
+  erase_after timestamptz [not null]
+  Note: '注文時連絡先 / 期限後に削除'
+}
+
+Table order_items {
+  id varchar [pk, not null]
+  order_id varchar [not null]
+  line_no integer [not null]
+  kind varchar [not null]
+  source_part_id varchar [null]
+  name_snapshot varchar [not null]
+  unit_price_excl_tax integer [not null]
+  quantity integer [not null]
+  line_total_excl_tax integer [not null]
+  indexes {
+    (order_id, line_no) [unique]
+  }
+  Note: 'パーツ・追加料金の価格明細'
+}
+
+Table order_status_logs {
+  id varchar [pk, not null]
+  order_id varchar [not null]
+  from_status order_status [null]
+  to_status order_status [not null]
+  actor_type varchar [not null]
+  actor_user_id varchar [null]
+  reason text [null]
+  created_at timestamptz [not null]
+  Note: '注文の状態変更履歴'
+}
+
+Table order_access_tokens {
+  id varchar [pk, not null]
+  order_id varchar [not null]
+  token_hash varchar [unique, not null]
+  scope varchar [not null]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz [null]
+  Note: 'ゲスト照会権限'
+}
+
+// 04  予約枠・日別上限
+Table store_weekly_capacity {
+  store_id varchar [not null]
+  weekday integer [not null]
+  capacity_points integer [not null]
+  indexes {
+    (store_id, weekday) [pk]
+  }
+  Note: '曜日ごとの既定枠'
+}
+
+Table daily_capacity {
+  store_id varchar [not null]
+  pickup_date date [not null]
+  capacity_points integer [not null]
+  is_closed boolean [not null]
+  indexes {
+    (store_id, pickup_date) [pk]
+  }
+  Note: '日別の枠 / 排他制御の単位'
+}
+
+Table capacity_holds {
+  id varchar [pk, not null]
+  order_id varchar [unique, not null]
+  store_id varchar [not null]
+  pickup_date date [not null]
+  points integer [not null]
+  status varchar [not null]
+  expires_at timestamptz [null]
+  Note: '仮確保・確定枠・解放を区別'
+}
+
+// 05  決済・返金・通知
+Table payments {
+  id varchar [pk, not null]
+  order_id varchar [not null]
+  provider varchar [not null]
+  provider_payment_id varchar [null]
+  idempotency_key varchar [unique, not null]
+  status varchar [not null]
+  amount integer [not null]
+  currency varchar [not null]
+  paid_at timestamptz [null]
+  created_at timestamptz [not null]
+  indexes {
+    (provider, provider_payment_id) [unique]
+  }
+  Note: '注文ごとの決済試行'
+}
+
+Table refunds {
+  id varchar [pk, not null]
+  payment_id varchar [not null]
+  provider_refund_id varchar [null]
+  idempotency_key varchar [unique, not null]
+  status varchar [not null]
+  amount integer [not null]
+  reason text [not null]
+  created_at timestamptz [not null]
+  provider varchar [not null]
+  indexes {
+    (provider, provider_refund_id) [unique]
+  }
+  Note: '返金と再試行管理'
+}
+
+Table webhook_events {
+  id varchar [pk, not null]
+  provider varchar [not null]
+  event_id varchar [not null]
+  event_type varchar [not null]
+  payment_id varchar [null]
+  status varchar [not null]
+  processed_at timestamptz [null]
+  received_at timestamptz [not null]
+  last_error text [null]
+  indexes {
+    (provider, event_id) [unique]
+  }
+  Note: '外部イベントの重複防止'
+}
+
+Table email_deliveries {
+  id varchar [pk, not null]
+  order_id varchar [null]
+  template varchar [not null]
+  dedupe_key varchar [unique, not null]
+  status varchar [not null]
+  attempt_count integer [not null]
+  sent_at timestamptz [null]
+  user_id varchar [null, note: '会員確認等の通知先。order_idまたはuser_idは必須']
+  recipient_email varchar [null, note: '送信先スナップショット。保持期限後に破棄']
+  created_at timestamptz [not null]
+  Note: '注文・会員向け通知の結果と再送'
+}
+
+// 06  共通制御・展示（任意）
+Table rate_limits {
+  scope varchar [not null]
+  key_hash varchar [not null]
+  window_started_at timestamptz [not null]
+  attempts integer [not null]
+  blocked_until timestamptz [null]
+  indexes {
+    (scope, key_hash) [pk]
+  }
+  Note: 'ログイン・注文照会等の回数制限'
+}
+
+Table demo_sessions {
+  id varchar [pk, not null]
+  started_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  ended_at timestamptz [null]
+  Note: '来場者単位の体験管理（任意）'
+}
+
+Ref: auth_sessions.user_id > users.id [delete: cascade]
+Ref: store_memberships.user_id > users.id [delete: cascade]
+Ref: store_memberships.store_id > stores.id [delete: cascade]
+Ref: designs.store_id > stores.id [delete: restrict]
+Ref: designs.user_id > users.id [delete: set null]
+Ref: parts.store_id > stores.id [delete: restrict]
+Ref: placements.design_id > designs.id [delete: restrict]
+Ref: placements.part_id > parts.id [delete: restrict]
+Ref: part_allergens.part_id > parts.id [delete: restrict]
+Ref: part_allergens.allergen_id > allergens.id [delete: restrict]
+Ref: orders.store_id > stores.id [delete: restrict]
+Ref: orders.user_id > users.id [delete: set null]
+Ref: orders.source_design_id > designs.id [delete: set null]
+Ref: order_contacts.order_id - orders.id [delete: restrict]
+Ref: order_design_snapshots.order_id - orders.id [delete: restrict]
+Ref: order_items.order_id > orders.id [delete: restrict]
+Ref: order_items.source_part_id > parts.id [delete: set null]
+Ref: order_status_logs.order_id > orders.id [delete: restrict]
+Ref: order_status_logs.actor_user_id > users.id [delete: set null]
+Ref: order_access_tokens.order_id > orders.id [delete: restrict]
+Ref: store_weekly_capacity.store_id > stores.id [delete: restrict]
+Ref: daily_capacity.store_id > stores.id [delete: restrict]
+Ref: capacity_holds.order_id - orders.id [delete: restrict]
+Ref: capacity_holds.(store_id, pickup_date) > daily_capacity.(store_id, pickup_date) [delete: restrict]
+Ref: payments.order_id > orders.id [delete: restrict]
+Ref: refunds.payment_id > payments.id [delete: restrict]
+Ref: webhook_events.payment_id > payments.id [delete: restrict]
+Ref: email_deliveries.order_id > orders.id [delete: restrict]
+Ref: designs.demo_session_id > demo_sessions.id [delete: restrict]
+Ref: orders.demo_session_id > demo_sessions.id [delete: restrict]
+Ref: design_publications.store_id > stores.id [delete: restrict]
+Ref: design_publications.source_design_id > designs.id [delete: set null]
+Ref: design_publications.author_user_id > users.id [delete: set null]
+Ref: designs.forked_from_publication_id > design_publications.id [delete: set null]
+Ref: design_likes.publication_id > design_publications.id [delete: cascade]
+Ref: design_likes.user_id > users.id [delete: cascade]
+Ref: user_profiles.user_id - users.id [delete: cascade]
+Ref: password_credentials.user_id - users.id [delete: cascade]
+Ref: auth_action_tokens.user_id > users.id [delete: cascade]
+Ref: user_consents.user_id > users.id [delete: restrict]
+Ref: email_deliveries.user_id > users.id [delete: set null]

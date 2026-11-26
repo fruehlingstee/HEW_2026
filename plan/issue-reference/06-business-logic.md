@@ -1,5 +1,7 @@
 # 業務ロジック
 
+> **2026-10-27企画改訂の参照先:** 会員・公開ギャラリー・コピー機能と注文スナップショットの方針は[../kikaku.md](../kikaku.md)、[../status.md](../status.md)、[改訂メモ](../db-v4-project-revision.md)を参照する。本資料の旧認証・デザインロック・列名・画面／Issue契約は詳細同期前であり、そのまま最新の実装仕様としない。変更のない価格等の規則は継続し、差異とDB不足項目を改訂メモで確認する。
+
 実装時の判断基準をまとめる。型と関数は [03-function-contracts.md](./03-function-contracts.md)、保存先は [04-database-design.md](./04-database-design.md) を参照する。
 
 ## 商品・デザイン

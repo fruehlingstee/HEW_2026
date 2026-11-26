@@ -1,10 +1,12 @@
 # CakeCanvas
 
-5号ケーキの色と飾りを指定し、3Dプレビューと店舗向け製造指示書を同じ配置データから生成する、HEW 2026向けのセミオーダーケーキサービスです。Ver1.0は1店舗・1注文1台・店頭受取で開発します。
+5号ケーキを自分でデザインしたり、人気の公開作品を自分用にコピーしてアレンジしたりできる、HEW 2026向けのセミオーダーケーキサービスです。会員は保存デザイン・お気に入り・注文履歴をマイページで管理し、注文時に固定した内容から店舗向け製造指示書を生成します。Ver1.0は1店舗・1注文1台・店頭受取を維持し、会員・ゲスト注文に対応する計画です。
 
 ## 現在の状態
 
 Next.js・TypeScript・Tailwind CSSの最小画面と開発コマンドを作成済みです。DB・3D・購入・店舗画面は未実装です。
+
+2026-10-27に会員・公開ギャラリー・お気に入り・人気順・コピー機能を企画へ追加しました。[企画改訂メモ](plan/db-v4-project-revision.md)、[統合DB案v4](output/db-design/cakecanvas-db-v4-unified.dbml)、[テーブル・カラム説明書](output/db-design/cakecanvas-db-v4-table-reference.md)を参照してください。追加機能も未実装で、担当・日程と旧詳細設計の同期は確認が必要です。
 
 基盤の [PR #86](https://github.com/fruehlingstee/HEW_2026/pull/86) は2026-09-16確認時点で未マージです。利用するブランチにpackage.json、package-lock.json、.github/workflows/ci.ymlが揃っていることを確認してください。
 
